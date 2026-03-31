@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Loyalty Scanner</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --surface2: #1a1a24;
+    --border: #1e1e2a;
+    --text: #e4e4ed;
+    --text-dim: #6b6b80;
+    --accent: #22d68a;
+    --accent-glow: rgba(34, 214, 138, 0.12);
+    --gold: #f5a623;
+    --gold-glow: rgba(245, 166, 35, 0.12);
+    --danger: #ef4444;
+    --radius: 14px;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 480px;
+    padding: 20px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 100dvh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 4px;
+  }
+
+  .logo {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, var(--accent), #1ab87a);
+    border-radius: 11px;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+
+  .logo svg { width: 22px; height: 22px; }
+
+  header h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
+  header p { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
+
+  .scanner-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .scanner-container video,
+  .scanner-container canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  .scanner-container canvas { display: none; }
+
+  .scanner-overlay {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    pointer-events: none; z-index: 2;
+  }
+
+  .scan-frame {
+    width: 55%; aspect-ratio: 1;
+    border: 2px solid rgba(34, 214, 138, 0.5);
+    border-radius: 16px;
+    position: relative;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
+  }
+
+  .scan-frame::before {
+    content: '';
+    position: absolute;
+    top: -2px; left: 50%;
+    transform: translateX(-50%);
+    width: 80%; height: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 14px var(--accent);
+    animation: scanLine 2s ease-in-out infinite;
+  }
+
+  @keyframes scanLine {
+    0%, 100% { top: -2px; }
+    50% { top: 100%; }
+  }
+
+  .scanner-placeholder {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; color: var(--text-dim);
+    font-size: 14px; z-index: 3;
+    font-weight: 500;
+  }
+
+  .scanner-placeholder svg { opacity: 0.25; }
+
+  .btn-scan-start {
+    margin-top: 8px;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 10px;
+    padding: 12px 32px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+
+  .btn-scan-start:active { transform: scale(0.96); }
+
+  .btn-stop {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 5;
+  }
+
+  .result-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .result-panel.active { display: flex; }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .customer-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .customer-avatar {
+    width: 44px; height: 44px;
+    background: var(--accent-glow);
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-weight: 800;
+    color: var(--accent);
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .customer-detail { flex: 1; }
+  .customer-detail .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .customer-detail .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 2px; word-break: break-all; }
+
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+
+  .points-selector {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+
+  .points-btn {
+    aspect-ratio: 1;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: grid;
+    place-items: center;
+  }
+
+  .points-btn:active { transform: scale(0.94); }
+  .points-btn.selected {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  .actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .btn-add {
+    width: 100%;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 10px;
+    padding: 14px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+
+  .btn-add:active { transform: scale(0.97); }
+  .btn-add:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-redeem {
+    width: 100%;
+    background: var(--gold-glow);
+    color: var(--gold);
+    border: 2px solid var(--gold);
+    border-radius: 10px;
+    padding: 14px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+
+  .btn-redeem:active { transform: scale(0.97); }
+
+  .btn-new-scan {
+    width: 100%;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .status-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .status-dot.active { background: var(--accent); animation: pulse 1.5s infinite; }
+  .status-dot.error { background: var(--danger); }
+  .status-dot.success { background: var(--accent); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .toast {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%) translateY(-100px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 22px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 999;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    text-align: center;
+    max-width: 90%;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.success { border-color: var(--accent); color: var(--accent); }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+  .toast.gold { border-color: var(--gold); color: var(--gold); }
+
+  .log-toggle {
+    background: none; border: none;
+    color: var(--text-dim);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 8px 0;
+    text-align: center;
+    width: 100%;
+  }
+
+  .log {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 20px;
+  }
+
+  .log.open { display: flex; }
+
+  .log-entry {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    animation: slideUp 0.2s ease-out;
+    word-break: break-all;
+  }
+
+  .log-entry .time { color: var(--text-dim); margin-right: 6px; }
+  .log-entry .action.add { color: var(--accent); }
+  .log-entry .action.redeem { color: var(--gold); }
+  .log-entry .action.fail { color: var(--danger); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#0a0a0f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Loyalty Scanner</h1>
+      <p>Scan &bull; Add Drinks &bull; Redeem</p>
+    </div>
+  </header>
+
+  <!-- Camera -->
+  <div class="scanner-container" id="scannerContainer">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="scanner-overlay" id="overlay" style="display:none;">
+      <div class="scan-frame"></div>
+    </div>
+    <button class="btn-stop" id="stopBtn" style="display:none;" onclick="stopScanner()">&#10005; Stop</button>
+    <div class="scanner-placeholder" id="placeholder">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/>
+        <rect x="14" y="14" width="3" height="3"/>
+        <line x1="21" y1="14" x2="21" y2="21"/>
+        <line x1="14" y1="21" x2="21" y2="21"/>
+      </svg>
+      <span>Scan a customer's QR code</span>
+      <button class="btn-scan-start" onclick="startScanner()">Start Scanner</button>
+    </div>
+  </div>
+
+  <!-- Result panel -->
+  <div class="result-panel" id="resultPanel">
+    <div class="customer-info">
+      <div class="customer-avatar" id="custAvatar">?</div>
+      <div class="customer-detail">
+        <div class="label">Customer QR Data</div>
+        <div class="value" id="custData">&mdash;</div>
+      </div>
+    </div>
+
+    <div class="section-label">How many drinks / points to add?</div>
+    <div class="points-selector" id="pointsSelector">
+      <button class="points-btn" data-pts="1" onclick="selectPoints(1)">1</button>
+      <button class="points-btn" data-pts="2" onclick="selectPoints(2)">2</button>
+      <button class="points-btn" data-pts="3" onclick="selectPoints(3)">3</button>
+      <button class="points-btn" data-pts="4" onclick="selectPoints(4)">4</button>
+      <button class="points-btn" data-pts="5" onclick="selectPoints(5)">5</button>
+    </div>
+
+    <div class="actions">
+      <button class="btn-add" id="btnAdd" disabled onclick="sendAddPoints()">Add Points</button>
+      <button class="btn-redeem" id="btnRedeem" onclick="sendRedeem()">&#11088; Redeem Free Drink (uses 9 pts)</button>
+      <button class="btn-new-scan" onclick="resetAndScan()">Scan Another Customer</button>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Ready &mdash; tap Start Scanner</span>
+  </div>
+
+  <button class="log-toggle" onclick="toggleLog()">&#9662; Activity Log</button>
+  <div class="log" id="log"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const WEBHOOK_URL = 'https://hook.eu2.make.com/op6xqsa0f9vlhgarfxxw964qrusoga4g';
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const overlay = document.getElementById('overlay');
+  const placeholder = document.getElementById('placeholder');
+  const stopBtn = document.getElementById('stopBtn');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const resultPanel = document.getElementById('resultPanel');
+  const custData = document.getElementById('custData');
+  const custAvatar = document.getElementById('custAvatar');
+  const btnAdd = document.getElementById('btnAdd');
+  const btnRedeem = document.getElementById('btnRedeem');
+  const logEl = document.getElementById('log');
+  const toastEl = document.getElementById('toast');
+
+  let scanning = false;
+  let stream = null;
+  let animFrame = null;
+  let currentQR = '';
+  let selectedPoints = 0;
+
+  function setStatus(text, state) {
+    statusText.textContent = text;
+    statusDot.className = 'status-dot' + (state ? ' ' + state : '');
+  }
+
+  function showToast(msg, type, duration) {
+    duration = duration || 2500;
+    toastEl.textContent = msg;
+    toastEl.className = 'toast ' + type + ' show';
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function() { toastEl.classList.remove('show'); }, duration);
+  }
+
+  function addLog(action, type, detail) {
+    var entry = document.createElement('div');
+    entry.className = 'log-entry';
+    var now = new Date().toLocaleTimeString();
+    entry.innerHTML = '<span class="time">' + now + '</span> <span class="action ' + type + '">' + esc(action) + '</span>';
+    if (detail) entry.innerHTML += ' <span style="color:var(--text-dim)">' + esc(detail) + '</span>';
+    logEl.prepend(entry);
+  }
+
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function toggleLog() { logEl.classList.toggle('open'); }
+
+  async function startScanner() {
+    try {
+      setStatus('Requesting camera...', '');
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      video.srcObject = stream;
+      await video.play();
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      scanning = true;
+      placeholder.style.display = 'none';
+      overlay.style.display = 'grid';
+      stopBtn.style.display = 'block';
+      resultPanel.classList.remove('active');
+      setStatus('Scanning - point at a QR code', 'active');
+      tick();
+    } catch (err) {
+      setStatus('Camera access denied', 'error');
+      showToast('Camera access denied', 'error');
+    }
+  }
+
+  function stopScanner() {
+    scanning = false;
+    if (animFrame) cancelAnimationFrame(animFrame);
+    if (stream) stream.getTracks().forEach(function(t) { t.stop(); });
+    video.srcObject = null;
+    overlay.style.display = 'none';
+    stopBtn.style.display = 'none';
+    placeholder.style.display = 'flex';
+    setStatus('Ready', '');
+  }
+
+  function tick() {
+    if (!scanning) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        if (navigator.vibrate) navigator.vibrate(120);
+        handleScan(code.data);
+        return;
+      }
+    }
+    animFrame = requestAnimationFrame(tick);
+  }
+
+  function handleScan(data) {
+    stopScanner();
+    currentQR = data;
+    selectedPoints = 0;
+
+    custData.textContent = data;
+    custAvatar.textContent = (data.charAt(0) || '?').toUpperCase();
+
+    document.querySelectorAll('.points-btn').forEach(function(b) { b.classList.remove('selected'); });
+    btnAdd.disabled = true;
+    btnAdd.textContent = 'Add Points';
+    btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
+    btnRedeem.style.pointerEvents = '';
+    btnRedeem.style.opacity = '';
+
+    resultPanel.classList.add('active');
+    setStatus('QR scanned - choose action', 'success');
+    showToast('QR code scanned!', 'success', 1500);
+  }
+
+  function selectPoints(n) {
+    selectedPoints = n;
+    document.querySelectorAll('.points-btn').forEach(function(b) {
+      b.classList.toggle('selected', Number(b.dataset.pts) === n);
+    });
+    btnAdd.disabled = false;
+    btnAdd.textContent = 'Add ' + n + ' Point' + (n > 1 ? 's' : '');
+  }
+
+  async function sendAddPoints() {
+    if (!selectedPoints || !currentQR) return;
+    btnAdd.disabled = true;
+    btnAdd.textContent = 'Sending...';
+    setStatus('Sending to webhook...', 'active');
+
+    var payload = {
+      action: 'add_points',
+      qr_data: currentQR,
+      points: selectedPoints,
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      var resp = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (resp.ok) {
+        showToast('+' + selectedPoints + ' point' + (selectedPoints > 1 ? 's' : '') + ' added!', 'success');
+        addLog('+' + selectedPoints + ' pts', 'add', currentQR);
+        setStatus('Points sent!', 'success');
+        btnAdd.textContent = '\u2713 Sent!';
+      } else {
+        showToast('Webhook error - try again', 'error');
+        addLog('Failed +' + selectedPoints, 'fail', 'HTTP ' + resp.status);
+        setStatus('Webhook error', 'error');
+        btnAdd.disabled = false;
+        btnAdd.textContent = 'Retry - Add ' + selectedPoints + ' Point' + (selectedPoints > 1 ? 's' : '');
+      }
+    } catch (err) {
+      showToast('Network error - try again', 'error');
+      addLog('Network error', 'fail', err.message);
+      setStatus('Network error', 'error');
+      btnAdd.disabled = false;
+      btnAdd.textContent = 'Retry - Add ' + selectedPoints + ' Point' + (selectedPoints > 1 ? 's' : '');
+    }
+  }
+
+  async function sendRedeem() {
+    btnRedeem.textContent = 'Sending...';
+    setStatus('Sending redemption...', 'active');
+
+    var payload = {
+      action: 'redeem_points',
+      qr_data: currentQR,
+      points_to_remove: 9,
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      var resp = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (resp.ok) {
+        showToast('\u2B50 Free drink redeemed!', 'gold', 3000);
+        addLog('Redeemed -9 pts', 'redeem', currentQR);
+        setStatus('Redemption sent!', 'success');
+        btnRedeem.textContent = '\u2713 Redeemed!';
+        btnRedeem.style.pointerEvents = 'none';
+        btnRedeem.style.opacity = '0.5';
+      } else {
+        showToast('Webhook error - try again', 'error');
+        addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
+        setStatus('Webhook error', 'error');
+        btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
+      }
+    } catch (err) {
+      showToast('Network error - try again', 'error');
+      addLog('Redeem error', 'fail', err.message);
+      setStatus('Network error', 'error');
+      btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
+    }
+  }
+
+  function resetAndScan() {
+    currentQR = '';
+    selectedPoints = 0;
+    resultPanel.classList.remove('active');
+    startScanner();
+  }
+</script>
+
+</body>
+</html>
