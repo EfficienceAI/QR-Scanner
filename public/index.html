@@ -207,34 +207,56 @@
     color: var(--text-dim);
   }
 
-  .points-selector {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
+  .points-stepper {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
   }
 
-  .points-btn {
-    aspect-ratio: 1;
-    border-radius: 10px;
-    border: 2px solid var(--border);
-    background: var(--surface2);
-    color: var(--text);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 20px;
+  .stepper-btn {
+    width: 64px;
+    height: 64px;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 28px;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s;
     display: grid;
     place-items: center;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .points-btn:active { transform: scale(0.94); }
-  .points-btn.selected {
-    border-color: var(--accent);
-    background: var(--accent-glow);
-    color: var(--accent);
-    box-shadow: 0 0 20px var(--accent-glow);
+  .stepper-btn:active { background: var(--accent-glow); }
+
+  .stepper-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    text-align: center;
+    height: 64px;
+    outline: none;
+    -moz-appearance: textfield;
   }
+
+  .stepper-input::-webkit-outer-spin-button,
+  .stepper-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .stepper-input::placeholder { color: var(--text-dim); opacity: 0.4; }
 
   .actions {
     display: flex;
@@ -426,12 +448,10 @@
     </div>
 
     <div class="section-label">How many drinks / points to add?</div>
-    <div class="points-selector" id="pointsSelector">
-      <button class="points-btn" data-pts="1" onclick="selectPoints(1)">1</button>
-      <button class="points-btn" data-pts="2" onclick="selectPoints(2)">2</button>
-      <button class="points-btn" data-pts="3" onclick="selectPoints(3)">3</button>
-      <button class="points-btn" data-pts="4" onclick="selectPoints(4)">4</button>
-      <button class="points-btn" data-pts="5" onclick="selectPoints(5)">5</button>
+    <div class="points-stepper">
+      <button class="stepper-btn" id="btnMinus" onclick="adjustPoints(-1)">&minus;</button>
+      <input type="number" class="stepper-input" id="pointsInput" value="" min="1" max="99" placeholder="0" oninput="onPointsInput()">
+      <button class="stepper-btn" id="btnPlus" onclick="adjustPoints(1)">+</button>
     </div>
 
     <div class="actions">
@@ -523,8 +543,21 @@
       setStatus('Scanning - point at a QR code', 'active');
       tick();
     } catch (err) {
-      setStatus('Camera access denied', 'error');
-      showToast('Camera access denied', 'error');
+      var msg = 'Camera error';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Camera blocked — tap the lock icon in your address bar, set Camera to Allow, then reload';
+      } else if (err.name === 'NotFoundError') {
+        msg = 'No camera found on this device';
+      } else if (err.name === 'NotReadableError') {
+        msg = 'Camera is in use by another app — close it and try again';
+      } else if (!navigator.mediaDevices || location.protocol !== 'https:') {
+        msg = 'Camera requires HTTPS — make sure the URL starts with https://';
+      } else {
+        msg = 'Camera error: ' + (err.message || err.name);
+      }
+      setStatus(msg, 'error');
+      showToast(msg, 'error', 5000);
+      console.error('Camera error:', err);
     }
   }
 
@@ -562,7 +595,7 @@
     custData.textContent = data;
     custAvatar.textContent = (data.charAt(0) || '?').toUpperCase();
 
-    document.querySelectorAll('.points-btn').forEach(function(b) { b.classList.remove('selected'); });
+    document.getElementById('pointsInput').value = '';
     btnAdd.disabled = true;
     btnAdd.textContent = 'Add Points';
     btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
@@ -574,13 +607,26 @@
     showToast('QR code scanned!', 'success', 1500);
   }
 
-  function selectPoints(n) {
-    selectedPoints = n;
-    document.querySelectorAll('.points-btn').forEach(function(b) {
-      b.classList.toggle('selected', Number(b.dataset.pts) === n);
-    });
-    btnAdd.disabled = false;
-    btnAdd.textContent = 'Add ' + n + ' Point' + (n > 1 ? 's' : '');
+  function adjustPoints(delta) {
+    var input = document.getElementById('pointsInput');
+    var current = parseInt(input.value) || 0;
+    var next = Math.max(1, Math.min(99, current + delta));
+    input.value = next;
+    onPointsInput();
+  }
+
+  function onPointsInput() {
+    var input = document.getElementById('pointsInput');
+    var val = parseInt(input.value);
+    if (val > 0) {
+      selectedPoints = val;
+      btnAdd.disabled = false;
+      btnAdd.textContent = 'Add ' + val + ' Point' + (val > 1 ? 's' : '');
+    } else {
+      selectedPoints = 0;
+      btnAdd.disabled = true;
+      btnAdd.textContent = 'Add Points';
+    }
   }
 
   async function sendAddPoints() {
