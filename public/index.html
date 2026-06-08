@@ -202,6 +202,36 @@
   .customer-detail .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
   .customer-detail .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 2px; word-break: break-all; }
 
+  .points-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .points-summary-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .points-value {
+    font-size: 40px;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -0.05em;
+  }
+
+  .points-copy {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: right;
+  }
+
   .section-label {
     font-size: 12px;
     font-weight: 600;
@@ -297,6 +327,8 @@
     cursor: pointer;
     transition: opacity 0.2s, transform 0.1s;
   }
+
+  .btn-redeem[hidden] { display: none !important; }
 
   .btn-redeem:active { transform: scale(0.97); }
 
@@ -455,6 +487,14 @@
       </div>
     </div>
 
+    <div class="points-summary" aria-live="polite">
+      <div class="section-label">Current Points</div>
+      <div class="points-summary-top">
+        <div class="points-value" id="pointsValue">&mdash;</div>
+      </div>
+      <div class="points-copy" id="pointsCopy">Scan a customer QR code to load their balance.</div>
+    </div>
+
     <div class="section-label">How many drinks / points to add?</div>
     <div class="points-stepper">
       <button class="stepper-btn" id="btnMinus" onclick="adjustPoints(-1)">&minus;</button>
@@ -464,7 +504,7 @@
 
     <div class="actions">
       <button class="btn-add" id="btnAdd" disabled onclick="sendAddPoints()">Add Points</button>
-      <button class="btn-redeem" id="btnRedeem" onclick="sendRedeem()">&#11088; Redeem Free Drink (uses 9 pts)</button>
+      <button class="btn-redeem" id="btnRedeem" hidden onclick="sendRedeem()">&#11088; Redeem Free Drink (uses 9 pts)</button>
       <button class="btn-new-scan" onclick="resetAndScan()">Scan Another Customer</button>
     </div>
   </div>
@@ -496,6 +536,8 @@
   const custData = document.getElementById('custData');
   const btnAdd = document.getElementById('btnAdd');
   const btnRedeem = document.getElementById('btnRedeem');
+  const pointsValue = document.getElementById('pointsValue');
+  const pointsCopy = document.getElementById('pointsCopy');
   const logEl = document.getElementById('log');
   const toastEl = document.getElementById('toast');
 
@@ -504,6 +546,7 @@
   let animFrame = null;
   let currentQR = '';
   let selectedPoints = 0;
+  let currentPoints = null;
 
   function setStatus(text, state) {
     statusText.textContent = text;
@@ -530,6 +573,101 @@
   function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function toggleLog() { logEl.classList.toggle('open'); }
+
+  function parsePointValue(value) {
+    var parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function extractPoints(data) {
+    if (data === null || data === undefined) return null;
+    if (typeof data === 'number') return Number.isFinite(data) ? data : null;
+    if (typeof data === 'string') {
+      var trimmed = data.trim();
+      if (!trimmed) return null;
+      if (/^-?\d+$/.test(trimmed)) return parsePointValue(trimmed);
+      try {
+        return extractPoints(JSON.parse(trimmed));
+      } catch (err) {
+        return null;
+      }
+    }
+    if (typeof data !== 'object') return null;
+
+    // PassKit "Search Member" returns an array of member records — dig into each.
+    if (Array.isArray(data)) {
+      for (var j = 0; j < data.length; j++) {
+        var arrPoints = extractPoints(data[j]);
+        if (arrPoints !== null) return arrPoints;
+      }
+      return null;
+    }
+
+    var keys = ['points', 'current_points', 'loyalty_points', 'balance', 'point_balance', 'points_balance'];
+    for (var i = 0; i < keys.length; i++) {
+      if (data[keys[i]] !== undefined && data[keys[i]] !== null) {
+        var value = parsePointValue(data[keys[i]]);
+        if (value !== null) return value;
+      }
+    }
+
+    return null;
+  }
+
+  function setPointsDisplay(points, message) {
+    currentPoints = points;
+    pointsValue.textContent = points === null ? '\u2014' : String(points);
+    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.'));
+    btnRedeem.hidden = !(typeof points === 'number' && points >= 9);
+    if (!btnRedeem.hidden) {
+      btnRedeem.style.pointerEvents = '';
+      btnRedeem.style.opacity = '';
+      btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
+    }
+  }
+
+  async function readResponsePayload(resp) {
+    var text = await resp.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      return text;
+    }
+  }
+
+  async function lookupCustomerPoints(qrData) {
+    var localPoints = extractPoints(qrData);
+    if (localPoints !== null) return localPoints;
+
+    try {
+      var resp = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'lookup_customer',
+          qr_data: qrData,
+          timestamp: new Date().toISOString()
+        })
+      });
+
+      if (!resp.ok) return null;
+      return extractPoints(await readResponsePayload(resp));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  async function refreshCustomerPoints(qrData) {
+    setPointsDisplay(null, 'Loading customer points...');
+    var points = await lookupCustomerPoints(qrData);
+    if (points === null) {
+      setPointsDisplay(null, 'Unable to load points for this QR code.');
+      return;
+    }
+
+    setPointsDisplay(points, points >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
+  }
 
   async function startScanner() {
     try {
@@ -594,23 +732,24 @@
     animFrame = requestAnimationFrame(tick);
   }
 
-  function handleScan(data) {
+  async function handleScan(data) {
     stopScanner();
     currentQR = data;
     selectedPoints = 0;
 
     custData.textContent = data;
+    setPointsDisplay(null, 'Loading customer points...');
 
     document.getElementById('pointsInput').value = '';
     btnAdd.disabled = true;
     btnAdd.textContent = 'Add Points';
-    btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
-    btnRedeem.style.pointerEvents = '';
-    btnRedeem.style.opacity = '';
+    btnRedeem.hidden = true;
 
     resultPanel.classList.add('active');
     setStatus('QR scanned - choose action', 'success');
     showToast('QR code scanned!', 'success', 1500);
+
+    await refreshCustomerPoints(data);
   }
 
   function adjustPoints(delta) {
@@ -660,6 +799,13 @@
         addLog('+' + selectedPoints + ' pts', 'add', currentQR);
         setStatus('Points sent!', 'success');
         btnAdd.textContent = '\u2713 Sent!';
+        var responsePayload = await readResponsePayload(resp);
+        var updatedPoints = extractPoints(responsePayload);
+        if (updatedPoints !== null) {
+          setPointsDisplay(updatedPoints, updatedPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
+        } else if (typeof currentPoints === 'number') {
+          setPointsDisplay(currentPoints + selectedPoints, currentPoints + selectedPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
+        }
       } else {
         showToast('Webhook error - try again', 'error');
         addLog('Failed +' + selectedPoints, 'fail', 'HTTP ' + resp.status);
@@ -677,6 +823,11 @@
   }
 
   async function sendRedeem() {
+    if (typeof currentPoints !== 'number' || currentPoints < 9) {
+      showToast('This customer needs 9 points before redeeming.', 'error');
+      return;
+    }
+
     btnRedeem.textContent = 'Sending...';
     setStatus('Sending redemption...', 'active');
 
@@ -698,9 +849,13 @@
         showToast('\u2B50 Free drink redeemed!', 'gold', 3000);
         addLog('Redeemed -9 pts', 'redeem', currentQR);
         setStatus('Redemption sent!', 'success');
+        var redeemPayload = await readResponsePayload(resp);
+        var remainingPoints = extractPoints(redeemPayload);
+        if (remainingPoints === null) {
+          remainingPoints = currentPoints - 9;
+        }
+        setPointsDisplay(remainingPoints, remainingPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
         btnRedeem.textContent = '\u2713 Redeemed!';
-        btnRedeem.style.pointerEvents = 'none';
-        btnRedeem.style.opacity = '0.5';
       } else {
         showToast('Webhook error - try again', 'error');
         addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
@@ -718,6 +873,7 @@
   function resetAndScan() {
     currentQR = '';
     selectedPoints = 0;
+    setPointsDisplay(null, 'Scan a customer QR code to load their balance.');
     resultPanel.classList.remove('active');
     startScanner();
   }
