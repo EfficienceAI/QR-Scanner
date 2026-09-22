@@ -35,7 +35,7 @@ one). `history` comes from PassKit's member event log:
 | field          | meaning                                                              |
 | -------------- | -------------------------------------------------------------------- |
 | `recorded`     | false if the event log could not be read (the scan still works)      |
-| `visits`       | number of points-earned events, i.e. Add Points taps, not points     |
+| `visits`       | number of points-earned events. Not shown on the page: staff do not scan every visit, so it undercounts |
 | `lastVisit`    | date of the most recent earn, or null                                |
 | `firstVisitOn` | date of the earliest earn, or null                                   |
 | `redemptions`  | number of points-burned events                                       |
@@ -45,9 +45,11 @@ one). `history` comes from PassKit's member event log:
 A member with points but no events joined before the event log has data;
 the page shows "No record" rather than calling them new.
 
-The event list uses `POST /members/member/list/events/{id}`, a route the
-PassKit gateway exposes but the REST docs do not list. It streams one JSON
-line per event.
+The event list uses the programme-level `POST /members/program/list/events/{programId}`
+with a `member.id` filter (undocumented field name, verified in production)
+and 1000-per-page paging. The per-member route `POST /members/member/list/events/{id}`
+is only a fallback: it has no paging and returns PassKit's default first
+page of 25 events, oldest first. Both stream one JSON line per event.
 
 `points` is always the balance **after** the action. Errors return
 `{ ok: false, error, message }` with codes `member_not_found` (404),

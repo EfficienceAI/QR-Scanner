@@ -150,7 +150,8 @@ function summarizeHistory(events, points, meta) {
 // PassKit does not document which filter field selects a member's events on
 // the programme-level list, so we try the likely names once and remember
 // the one that works for the life of this function instance.
-const MEMBER_FILTER_CANDIDATES = ['memberId', 'member.id', 'id'];
+// Verified in production on 2026-09-22: PassKit accepts `member.id`.
+const MEMBER_FILTER_CANDIDATES = ['member.id', 'memberId', 'id'];
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 5;
 let workingMemberFilter = null;

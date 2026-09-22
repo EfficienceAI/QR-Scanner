@@ -523,9 +523,9 @@
         <div class="sub" id="lastVisitSub"></div>
       </div>
       <div class="visit-tile">
-        <div class="label">Visits</div>
-        <div class="value dim" id="visitsValue">&mdash;</div>
-        <div class="sub" id="visitsSub"></div>
+        <div class="label">Free drinks</div>
+        <div class="value dim" id="drinksValue">&mdash;</div>
+        <div class="sub" id="drinksSub"></div>
       </div>
     </div>
 
@@ -581,8 +581,8 @@
   const custAvatar = document.getElementById('custAvatar');
   const lastVisitValue = document.getElementById('lastVisitValue');
   const lastVisitSub = document.getElementById('lastVisitSub');
-  const visitsValue = document.getElementById('visitsValue');
-  const visitsSub = document.getElementById('visitsSub');
+  const drinksValue = document.getElementById('drinksValue');
+  const drinksSub = document.getElementById('drinksSub');
   const btnAdd = document.getElementById('btnAdd');
   const btnRedeem = document.getElementById('btnRedeem');
   const pointsValue = document.getElementById('pointsValue');
@@ -804,15 +804,15 @@
 
   function renderHistory(history) {
     lastVisitValue.className = 'value';
-    visitsValue.className = 'value';
+    drinksValue.className = 'value';
     lastVisitSub.textContent = '';
-    visitsSub.textContent = '';
+    drinksSub.textContent = '';
 
     if (!history || !history.recorded) {
       lastVisitValue.className = 'value dim';
       lastVisitValue.textContent = history ? 'Unavailable' : '\u2014';
-      visitsValue.className = 'value dim';
-      visitsValue.textContent = '\u2014';
+      drinksValue.className = 'value dim';
+      drinksValue.textContent = '\u2014';
       return;
     }
 
@@ -829,12 +829,13 @@
       lastVisitSub.textContent = fmtDateTime(history.lastVisit);
     }
 
-    visitsValue.textContent = String(history.visits || 0);
-    var bits = [];
-    if (history.partial) bits.push('most recent only');
-    else if (history.retentionDays) bits.push('last ' + retentionLabel(history.retentionDays));
-    if (history.redemptions) bits.push(history.redemptions + (history.redemptions === 1 ? ' free drink' : ' free drinks'));
-    visitsSub.textContent = bits.join(' \u00b7 ');
+    var drinks = history.redemptions || 0;
+    drinksValue.textContent = String(drinks);
+    if (!drinks) drinksValue.className = 'value dim';
+    if (history.partial) drinksSub.textContent = 'most recent only';
+    else if (history.lastRedeem) drinksSub.textContent = 'Last one ' + relativeDay(history.lastRedeem).toLowerCase();
+    else if (history.retentionDays) drinksSub.textContent = 'in the last ' + retentionLabel(history.retentionDays);
+    else drinksSub.textContent = 'None yet';
   }
 
   function resetCustomerCard(qrData) {
