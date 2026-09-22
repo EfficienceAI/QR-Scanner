@@ -1080,10 +1080,10 @@
   // ---- Self-update -------------------------------------------------------
   // The shop device keeps this page open for days. Without this, a new
   // deployment only reaches it when someone remembers to refresh. The page
-  // hashes its own source at load, re-fetches it every few minutes (and when
-  // the tab comes back into view) and reloads itself once idle if it changed.
+  // hashes its own source at load, re-fetches it once an hour (and when the
+  // tab comes back into view) and reloads itself once idle if it changed.
   var SelfUpdate = {
-    CHECK_MS: 5 * 60 * 1000,
+    CHECK_MS: 60 * 60 * 1000,
     IDLE_MID_CUSTOMER_MS: 90 * 1000,
     IDLE_WHILE_SCANNING_MS: 10 * 60 * 1000,
     baseline: null,
