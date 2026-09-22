@@ -1076,6 +1076,74 @@
     resultPanel.classList.remove('active');
     startScanner();
   }
+
+  // ---- Self-update -------------------------------------------------------
+  // The shop device keeps this page open for days. Without this, a new
+  // deployment only reaches it when someone remembers to refresh. The page
+  // hashes its own source at load, re-fetches it every few minutes (and when
+  // the tab comes back into view) and reloads itself once idle if it changed.
+  var SelfUpdate = {
+    CHECK_MS: 5 * 60 * 1000,
+    IDLE_MID_CUSTOMER_MS: 90 * 1000,
+    IDLE_WHILE_SCANNING_MS: 10 * 60 * 1000,
+    baseline: null,
+    updateAvailable: false,
+    lastActivity: Date.now(),
+    reloading: false,
+
+    hash: function (text) {
+      var h = 0;
+      for (var i = 0; i < text.length; i++) h = (Math.imul(h, 31) + text.charCodeAt(i)) | 0;
+      return (h >>> 0).toString(16) + ':' + text.length;
+    },
+
+    fetchVersion: async function () {
+      try {
+        var resp = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' });
+        if (!resp.ok) return null;
+        return SelfUpdate.hash(await resp.text());
+      } catch (err) {
+        return null;
+      }
+    },
+
+    check: async function () {
+      var v = await SelfUpdate.fetchVersion();
+      if (!v) return;
+      if (SelfUpdate.baseline === null) { SelfUpdate.baseline = v; return; }
+      if (v !== SelfUpdate.baseline && !SelfUpdate.updateAvailable) {
+        SelfUpdate.updateAvailable = true;
+        console.info('[self-update] new version deployed; will reload when idle');
+      }
+    },
+
+    idleFor: function () { return Date.now() - SelfUpdate.lastActivity; },
+
+    canReloadNow: function () {
+      if (!SelfUpdate.updateAvailable || SelfUpdate.reloading) return false;
+      if (scanning) return SelfUpdate.idleFor() >= SelfUpdate.IDLE_WHILE_SCANNING_MS;
+      if (resultPanel.classList.contains('active')) return SelfUpdate.idleFor() >= SelfUpdate.IDLE_MID_CUSTOMER_MS;
+      return true;
+    },
+
+    maybeReload: function () {
+      if (!SelfUpdate.canReloadNow()) return;
+      SelfUpdate.reloading = true;
+      setStatus('Updating scanner...', 'active');
+      setTimeout(function () { location.reload(); }, 400);
+    },
+
+    start: function () {
+      ['click', 'touchstart', 'keydown', 'input'].forEach(function (ev) {
+        document.addEventListener(ev, function () { SelfUpdate.lastActivity = Date.now(); }, { passive: true, capture: true });
+      });
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) SelfUpdate.check(); });
+      SelfUpdate.check();
+      setInterval(SelfUpdate.check, SelfUpdate.CHECK_MS);
+      setInterval(SelfUpdate.maybeReload, 10 * 1000);
+    }
+  };
+  SelfUpdate.start();
 </script>
 
 </body>

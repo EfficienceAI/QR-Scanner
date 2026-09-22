@@ -64,6 +64,17 @@ Every earn/burn is written to PassKit's member event log with
 you now lives in PassKit. Each request also logs one JSON line to the Vercel
 function logs.
 
+## Self-update on the shop device
+
+The scanner page stays open for days, so `public/index.html` checks for a
+new deployment itself: it hashes its own source at load, re-fetches it every
+5 minutes and whenever the tab becomes visible, and reloads when the hash
+changes. It never reloads mid-customer: with a customer panel open it waits
+for 90 seconds without a tap, and with the camera running it waits 10
+minutes. The status bar shows "Updating scanner..." just before the reload.
+Devices still running a build from before this feature need one manual
+refresh.
+
 ## Environment variables
 
 Set these in Vercel (Project → Settings → Environment Variables). For testing
