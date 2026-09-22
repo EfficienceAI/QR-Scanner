@@ -756,6 +756,12 @@
     return d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   }
 
+  function retentionLabel(days) {
+    if (days >= 360) { var y = Math.round(days / 365); return y + (y === 1 ? ' year' : ' years'); }
+    if (days >= 55) { var mo = Math.round(days / 30); return mo + ' months'; }
+    return days + ' days';
+  }
+
   function fmtMonthYear(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return '';
@@ -788,7 +794,6 @@
     }
 
     custMeta.innerHTML = '';
-    if (member.tierName) custMeta.appendChild(pill(member.tierName, 'tier'));
     if (history && history.firstVisit) custMeta.appendChild(pill('First visit', 'gold'));
     if (member.joined) {
       var since = document.createElement('span');
@@ -826,7 +831,8 @@
 
     visitsValue.textContent = String(history.visits || 0);
     var bits = [];
-    if (history.firstVisitOn) bits.push('since ' + fmtMonthYear(history.firstVisitOn));
+    if (history.partial) bits.push('most recent only');
+    else if (history.retentionDays) bits.push('last ' + retentionLabel(history.retentionDays));
     if (history.redemptions) bits.push(history.redemptions + (history.redemptions === 1 ? ' free drink' : ' free drinks'));
     visitsSub.textContent = bits.join(' \u00b7 ');
   }
