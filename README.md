@@ -61,6 +61,13 @@ See `.env.example`.
 
 ## Testing this branch without touching production
 
+Preview deployments on this project sit behind **Vercel Authentication**
+(Settings → Deployment Protection). On a phone, open the preview URL and log
+in to Vercel when redirected. For the smoke script, either generate a
+*Protection Bypass for Automation* secret in the same settings page and run
+it with `VERCEL_BYPASS=<secret>`, or temporarily switch protection off for
+Preview deployments. Production is not affected either way.
+
 1. Push the branch. Vercel builds a **Preview** deployment with its own URL
    (`https://qr-scanner-git-<branch>-efficeicnais-projects.vercel.app`).
    Production keeps running the Make.com flow.
