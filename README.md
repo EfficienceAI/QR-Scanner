@@ -24,9 +24,30 @@ is unchanged apart from the URL it posts to.
 
 | action            | request fields                      | 200 response                                  |
 | ----------------- | ----------------------------------- | --------------------------------------------- |
-| `lookup_customer` | `qr_data`                           | `{ ok, points, member: { id, name, tier, … } }` |
+| `lookup_customer` | `qr_data`                           | `{ ok, points, member, history }` (see below)   |
 | `add_points`      | `qr_data`, `points` (1–99)          | `{ ok, added, points }`                        |
 | `redeem_points`   | `qr_data`, `points_to_remove`       | `{ ok, redeemed, points }`                     |
+
+`member` carries `id`, `name`, `tier`, `tierName`, `status`, `points`,
+`joined` (enrolment date) and `photo` (URL, only if the programme collects
+one). `history` comes from PassKit's member event log:
+
+| field          | meaning                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| `recorded`     | false if the event log could not be read (the scan still works)      |
+| `visits`       | number of points-earned events, i.e. Add Points taps, not points     |
+| `lastVisit`    | date of the most recent earn, or null                                |
+| `firstVisitOn` | date of the earliest earn, or null                                   |
+| `redemptions`  | number of points-burned events                                       |
+| `lastRedeem`   | date of the most recent burn, or null                                |
+| `firstVisit`   | true only when there are no earn events **and** the balance is 0     |
+
+A member with points but no events joined before the event log has data;
+the page shows "No record" rather than calling them new.
+
+The event list uses `POST /members/member/list/events/{id}`, a route the
+PassKit gateway exposes but the REST docs do not list. It streams one JSON
+line per event.
 
 `points` is always the balance **after** the action. Errors return
 `{ ok: false, error, message }` with codes `member_not_found` (404),

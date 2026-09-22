@@ -79,17 +79,70 @@ function memberRefFromQr(raw, idMode) {
   return idMode === 'externalid' ? { externalId: s } : { id: s };
 }
 
+const EARN_EVENT = 'EVENT_MEMBER_POINTS_EARNED';
+const BURN_EVENT = 'EVENT_MEMBER_POINTS_BURNED';
+
+function humanizeTier(tierId) {
+  if (!tierId || typeof tierId !== 'string') return null;
+  return tierId.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function summarizeMember(m) {
   const p = m.person || {};
   const name = p.displayName || [p.forename, p.surname].filter(Boolean).join(' ') || null;
+  const photo = typeof m.profileImage === 'string' && /^https?:\/\//i.test(m.profileImage) ? m.profileImage : null;
   return {
     id: m.id || null,
     externalId: m.externalId || null,
     name,
     tier: m.tierId || null,
+    tierName: humanizeTier(m.tierId),
     status: m.status || null,
     points: num(m.points),
+    joined: m.created || null,
+    photo,
   };
+}
+
+/**
+ * Visit history from PassKit's member event log. One "visit" is one
+ * points-earned event (one Add Points tap), not one point.
+ */
+function summarizeHistory(events, points) {
+  if (!Array.isArray(events)) {
+    return { recorded: false, visits: 0, lastVisit: null, firstVisitOn: null, redemptions: 0, lastRedeem: null, firstVisit: false };
+  }
+  const earned = [];
+  const burned = [];
+  for (const e of events) {
+    const at = Date.parse((e && (e.date || e.created)) || '');
+    if (!Number.isFinite(at)) continue;
+    if (e.eventType === EARN_EVENT) earned.push(at);
+    else if (e.eventType === BURN_EVENT) burned.push(at);
+  }
+  earned.sort((a, b) => b - a);
+  burned.sort((a, b) => b - a);
+  const iso = (ms) => new Date(ms).toISOString();
+  return {
+    recorded: true,
+    visits: earned.length,
+    lastVisit: earned.length ? iso(earned[0]) : null,
+    firstVisitOn: earned.length ? iso(earned[earned.length - 1]) : null,
+    redemptions: burned.length,
+    lastRedeem: burned.length ? iso(burned[0]) : null,
+    // A member with no earn events and no points has genuinely never bought
+    // anything. No events but a balance means history predates the log.
+    firstVisit: earned.length === 0 && num(points) === 0,
+  };
+}
+
+async function fetchEvents(memberId, log) {
+  try {
+    return await passkit.listEventsForMember(memberId);
+  } catch (err) {
+    log({ warn: 'events_unavailable', status: err.status, message: err.message });
+    return null;
+  }
 }
 
 function eventDetails(action, amount) {
@@ -133,9 +186,14 @@ module.exports = async function handler(req, res) {
 
   try {
     if (action === 'lookup_customer') {
-      const member = summarizeMember(await passkit.getMember(ref));
-      log({ points: member.points });
-      return send(res, 200, { ok: true, action, points: member.points, member });
+      // When the QR gives us the PassKit id both calls can run side by side.
+      const eventsEarly = ref.id ? fetchEvents(ref.id, log) : null;
+      const raw = await passkit.getMember(ref);
+      const member = summarizeMember(raw);
+      const events = eventsEarly ? await eventsEarly : member.id ? await fetchEvents(member.id, log) : null;
+      const history = summarizeHistory(events, member.points);
+      log({ points: member.points, events: events ? events.length : 'unavailable', visits: history.visits, lastVisit: history.lastVisit });
+      return send(res, 200, { ok: true, action, points: member.points, member, history });
     }
 
     if (action === 'add_points') {
@@ -203,4 +261,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { memberRefFromQr, summarizeMember, positiveInt };
+module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt };

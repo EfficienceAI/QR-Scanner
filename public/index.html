@@ -201,6 +201,34 @@
   .customer-detail { flex: 1; }
   .customer-detail .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
   .customer-detail .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 2px; word-break: break-all; }
+  .customer-detail .name { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+  .customer-detail .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 5px; font-size: 12px; color: var(--text-dim); }
+  .customer-detail .id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); opacity: 0.65; margin-top: 5px; word-break: break-all; }
+
+  .customer-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .customer-avatar .initials { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .pill.tier { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(34, 214, 138, 0.35); }
+  .pill.gold { background: var(--gold-glow); color: var(--gold); border: 1px solid rgba(245, 166, 35, 0.45); }
+
+  .visit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .visit-tile {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    min-width: 0;
+  }
+  .visit-tile .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+  .visit-tile .value { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; line-height: 1.2; }
+  .visit-tile .value.gold { color: var(--gold); }
+  .visit-tile .value.dim { color: var(--text-dim); font-weight: 600; }
+  .visit-tile .sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
 
   .points-summary {
     display: flex;
@@ -475,15 +503,29 @@
   <!-- Result panel -->
   <div class="result-panel" id="resultPanel">
     <div class="customer-info">
-      <div class="customer-avatar" aria-hidden="true">
+      <div class="customer-avatar" id="custAvatar" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
           <circle cx="12" cy="7" r="4"/>
         </svg>
       </div>
       <div class="customer-detail">
-        <div class="label">Customer QR Data</div>
-        <div class="value" id="custData">&mdash;</div>
+        <div class="name" id="custName">Loading customer...</div>
+        <div class="meta" id="custMeta"></div>
+        <div class="id" id="custData">&mdash;</div>
+      </div>
+    </div>
+
+    <div class="visit-grid" aria-live="polite">
+      <div class="visit-tile">
+        <div class="label">Last visit</div>
+        <div class="value dim" id="lastVisitValue">&mdash;</div>
+        <div class="sub" id="lastVisitSub"></div>
+      </div>
+      <div class="visit-tile">
+        <div class="label">Visits</div>
+        <div class="value dim" id="visitsValue">&mdash;</div>
+        <div class="sub" id="visitsSub"></div>
       </div>
     </div>
 
@@ -534,6 +576,13 @@
   const statusText = document.getElementById('statusText');
   const resultPanel = document.getElementById('resultPanel');
   const custData = document.getElementById('custData');
+  const custName = document.getElementById('custName');
+  const custMeta = document.getElementById('custMeta');
+  const custAvatar = document.getElementById('custAvatar');
+  const lastVisitValue = document.getElementById('lastVisitValue');
+  const lastVisitSub = document.getElementById('lastVisitSub');
+  const visitsValue = document.getElementById('visitsValue');
+  const visitsSub = document.getElementById('visitsSub');
   const btnAdd = document.getElementById('btnAdd');
   const btnRedeem = document.getElementById('btnRedeem');
   const pointsValue = document.getElementById('pointsValue');
@@ -546,6 +595,8 @@
   let animFrame = null;
   let currentQR = '';
   let selectedPoints = 0;
+  let currentMember = null;
+  let currentHistory = null;
   let currentPoints = null;
 
   function setStatus(text, state) {
@@ -636,10 +687,7 @@
     }
   }
 
-  async function lookupCustomerPoints(qrData) {
-    var localPoints = extractPoints(qrData);
-    if (localPoints !== null) return localPoints;
-
+  async function lookupCustomer(qrData) {
     try {
       var resp = await fetch(WEBHOOK_URL, {
         method: 'POST',
@@ -650,23 +698,164 @@
           timestamp: new Date().toISOString()
         })
       });
-
-      if (!resp.ok) return null;
-      return extractPoints(await readResponsePayload(resp));
+      var payload = await readResponsePayload(resp);
+      if (!resp.ok) return { error: (payload && payload.message) || ('HTTP ' + resp.status) };
+      return {
+        points: extractPoints(payload),
+        member: (payload && payload.member) || null,
+        history: (payload && payload.history) || null
+      };
     } catch (err) {
-      return null;
+      return { error: 'Network error' };
     }
   }
 
   async function refreshCustomerPoints(qrData) {
     setPointsDisplay(null, 'Loading customer points...');
-    var points = await lookupCustomerPoints(qrData);
-    if (points === null) {
-      setPointsDisplay(null, 'Unable to load points for this QR code.');
+    var result = await lookupCustomer(qrData);
+    if (result.error || result.points === null) {
+      setPointsDisplay(null, result.error || 'Unable to load points for this QR code.');
+      custName.textContent = 'Member not found';
+      renderHistory(null);
       return;
     }
 
-    setPointsDisplay(points, points >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
+    currentMember = result.member;
+    currentHistory = result.history;
+    renderCustomer(result.member, result.history);
+    renderHistory(result.history);
+    setPointsDisplay(result.points, result.points >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
+  }
+
+  // ---- Customer card + visit history ----
+
+  function initialsFor(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '';
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+
+  function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+  function relativeDay(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    var days = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+    if (days <= 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 14) return days + ' days ago';
+    if (days < 60) return Math.round(days / 7) + ' weeks ago';
+    if (days < 365) return Math.round(days / 30) + ' months ago';
+    var years = Math.round(days / 365);
+    return years + (years === 1 ? ' year ago' : ' years ago');
+  }
+
+  function fmtDateTime(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function fmtMonthYear(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleString('en-GB', { month: 'short', year: 'numeric' });
+  }
+
+  function pill(text, kind) {
+    var el = document.createElement('span');
+    el.className = 'pill ' + kind;
+    el.textContent = text;
+    return el;
+  }
+
+  function renderCustomer(member, history) {
+    member = member || {};
+    custName.textContent = member.name || 'Loyalty member';
+    custData.textContent = member.id || currentQR || '\u2014';
+
+    custAvatar.innerHTML = '';
+    if (member.photo) {
+      var img = document.createElement('img');
+      img.src = member.photo;
+      img.alt = '';
+      custAvatar.appendChild(img);
+    } else {
+      var ini = document.createElement('span');
+      ini.className = 'initials';
+      ini.textContent = initialsFor(member.name) || '?';
+      custAvatar.appendChild(ini);
+    }
+
+    custMeta.innerHTML = '';
+    if (member.tierName) custMeta.appendChild(pill(member.tierName, 'tier'));
+    if (history && history.firstVisit) custMeta.appendChild(pill('First visit', 'gold'));
+    if (member.joined) {
+      var since = document.createElement('span');
+      since.textContent = 'Member since ' + fmtMonthYear(member.joined);
+      custMeta.appendChild(since);
+    }
+  }
+
+  function renderHistory(history) {
+    lastVisitValue.className = 'value';
+    visitsValue.className = 'value';
+    lastVisitSub.textContent = '';
+    visitsSub.textContent = '';
+
+    if (!history || !history.recorded) {
+      lastVisitValue.className = 'value dim';
+      lastVisitValue.textContent = history ? 'Unavailable' : '\u2014';
+      visitsValue.className = 'value dim';
+      visitsValue.textContent = '\u2014';
+      return;
+    }
+
+    if (history.firstVisit) {
+      lastVisitValue.className = 'value gold';
+      lastVisitValue.textContent = 'First visit!';
+      lastVisitSub.textContent = 'Welcome them';
+    } else if (!history.lastVisit) {
+      lastVisitValue.className = 'value dim';
+      lastVisitValue.textContent = 'No record';
+      lastVisitSub.textContent = 'Before the log started';
+    } else {
+      lastVisitValue.textContent = relativeDay(history.lastVisit);
+      lastVisitSub.textContent = fmtDateTime(history.lastVisit);
+    }
+
+    visitsValue.textContent = String(history.visits || 0);
+    var bits = [];
+    if (history.firstVisitOn) bits.push('since ' + fmtMonthYear(history.firstVisitOn));
+    if (history.redemptions) bits.push(history.redemptions + (history.redemptions === 1 ? ' free drink' : ' free drinks'));
+    visitsSub.textContent = bits.join(' \u00b7 ');
+  }
+
+  function resetCustomerCard(qrData) {
+    currentMember = null;
+    currentHistory = null;
+    custName.textContent = qrData ? 'Loading customer...' : '\u2014';
+    custMeta.innerHTML = '';
+    custData.textContent = qrData || '\u2014';
+    custAvatar.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    renderHistory(null);
+  }
+
+  function noteVisitNow() {
+    if (!currentHistory || !currentHistory.recorded) return;
+    currentHistory.visits = (currentHistory.visits || 0) + 1;
+    currentHistory.lastVisit = new Date().toISOString();
+    if (!currentHistory.firstVisitOn) currentHistory.firstVisitOn = currentHistory.lastVisit;
+    currentHistory.firstVisit = false;
+    renderCustomer(currentMember, currentHistory);
+    renderHistory(currentHistory);
+  }
+
+  function noteRedeemNow() {
+    if (!currentHistory || !currentHistory.recorded) return;
+    currentHistory.redemptions = (currentHistory.redemptions || 0) + 1;
+    currentHistory.lastRedeem = new Date().toISOString();
+    renderHistory(currentHistory);
   }
 
   async function startScanner() {
@@ -737,7 +926,7 @@
     currentQR = data;
     selectedPoints = 0;
 
-    custData.textContent = data;
+    resetCustomerCard(data);
     setPointsDisplay(null, 'Loading customer points...');
 
     document.getElementById('pointsInput').value = '';
@@ -799,6 +988,7 @@
         addLog('+' + selectedPoints + ' pts', 'add', currentQR);
         setStatus('Points sent!', 'success');
         btnAdd.textContent = '\u2713 Sent!';
+        noteVisitNow();
         var responsePayload = await readResponsePayload(resp);
         var updatedPoints = extractPoints(responsePayload);
         if (updatedPoints !== null) {
@@ -856,6 +1046,7 @@
         }
         setPointsDisplay(remainingPoints, remainingPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
         btnRedeem.textContent = '\u2713 Redeemed!';
+        noteRedeemNow();
       } else {
         showToast('Webhook error - try again', 'error');
         addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
@@ -873,6 +1064,7 @@
   function resetAndScan() {
     currentQR = '';
     selectedPoints = 0;
+    resetCustomerCard('');
     setPointsDisplay(null, 'Scan a customer QR code to load their balance.');
     resultPanel.classList.remove('active');
     startScanner();
