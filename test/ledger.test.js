@@ -34,7 +34,7 @@ test('recordEvent is a no-op when the ledger is not configured', async () => {
 test('getTotals and getSeries call the RPCs and normalise numbers', async () => {
   await withEnv({ url: 'https://db.supabase.co', key: 'svc' }, async () => {
     const calls = [];
-    const fetchImpl = async (url, init) => { calls.push({ url, body: JSON.parse(init.body) }); return { ok: true, status: 200, text: async () => (url.endsWith('/rpc/scan_totals') ? '[{"today":"25","total":"4812","first_at":"2026-06-29T10:00:00+00:00","live_since":null}]' : '[{"bucket_start":"2026-09-28T08:00:00+00:00","scans":"7","adds":"6","redeems":"1","points_added":"9"}]') }; };
+    const fetchImpl = async (url, init) => { calls.push({ url, body: JSON.parse(init.body) }); return { ok: true, status: 200, text: async () => (url.endsWith('/rpc/scan_totals') ? '[{"today":"25","total":"4812","first_at":"2026-06-29T10:00:00+00:00","live_since":null}]' : '[{"bucket_start":"2026-09-28T08:00:00+00:00","scans":"7","adds":"6","redeems":"1","points_stamped":"9","points_burned":"0"}]') }; };
     const t = await ledger.getTotals('Europe/London', { fetchImpl });
     assert.deepEqual(t, { today: 25, total: 4812, firstAt: '2026-06-29T10:00:00+00:00', liveSince: null });
     const s = await ledger.getSeries('hour', '2026-09-27T23:00:00.000Z', '2026-09-28T23:00:00.000Z', 'Europe/London', { fetchImpl });
