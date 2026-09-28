@@ -36,6 +36,16 @@ function settings() {
   };
 }
 
+/**
+ * The client's idempotency key for this action, namespaced so it can never
+ * collide with a PassKit event id in the same unique column. Anything missing
+ * or oversized simply means "no key", and the row is written unconditionally.
+ */
+function requestKey(body) {
+  const raw = typeof body.request_id === 'string' ? body.request_id.trim() : '';
+  return raw && raw.length <= 64 ? `scan:${raw}` : null;
+}
+
 function readBody(req) {
   if (req.body == null) return {};
   if (typeof req.body === 'object') return req.body;
@@ -264,6 +274,7 @@ module.exports = async function handler(req, res) {
   const body = readBody(req);
   const action = String(body.action || '').toLowerCase();
   const ref = memberRefFromQr(body.qr_data, cfg.idMode);
+  const requestId = requestKey(body);
   const started = Date.now();
   const log = (extra) =>
     console.log(JSON.stringify({ src: SOURCE_TAG, action, ref, ms: Date.now() - started, ...extra }));
@@ -310,7 +321,7 @@ module.exports = async function handler(req, res) {
           history,
           settings: { redeemCost: cfg.redeemCost, maxPointsPerScan: cfg.maxPointsPerScan },
         },
-        { action: 'lookup', memberId: member.id },
+        { action: 'lookup', memberId: member.id, requestId },
         log
       );
     }
@@ -330,7 +341,7 @@ module.exports = async function handler(req, res) {
       return respondThenRecord(
         res,
         { ok: true, action, added: points, points: balance },
-        { action: 'add', memberId: ref.id || result.id || null, points },
+        { action: 'add', memberId: ref.id || result.id || null, points, requestId },
         log
       );
     }
@@ -361,7 +372,7 @@ module.exports = async function handler(req, res) {
       return respondThenRecord(
         res,
         { ok: true, action, removed: points, points: balance },
-        { action: 'remove', memberId: before.id || ref.id || null, points },
+        { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
         log
       );
     }
@@ -387,7 +398,7 @@ module.exports = async function handler(req, res) {
       return respondThenRecord(
         res,
         { ok: true, action, redeemed: cost, points: balance },
-        { action: 'redeem', memberId: before.id || ref.id || null, points: cost },
+        { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
         log
       );
     }
@@ -421,4 +432,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt };
+module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt, requestKey };

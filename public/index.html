@@ -456,6 +456,18 @@
   // first tap only arms it.
   let redeemArmed = false;
   let redeemArmTimer = null;
+  // Idempotency keys, one per intent. A retry after a lost response reuses the
+  // same key so the ledger records the visit once; changing the amount, scanning
+  // someone else or succeeding all start a new one.
+  let pointsRequestId = null;
+  let redeemRequestId = null;
+
+  function newRequestId() {
+    try {
+      if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    } catch (err) { /* fall through */ }
+    return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
 
   // Business rules belong to the server (LOYALTY_REDEEM_COST,
   // LOYALTY_MAX_POINTS_PER_SCAN). These values are only what the page shows
@@ -610,7 +622,7 @@
       var resp = await apiFetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'lookup_customer', qr_data: qrData, timestamp: new Date().toISOString() })
+        body: JSON.stringify({ action: 'lookup_customer', qr_data: qrData, request_id: newRequestId(), timestamp: new Date().toISOString() })
       });
       var payload = await readResponsePayload(resp);
       if (!resp.ok) return { error: (payload && payload.message) || ('HTTP ' + resp.status) };
@@ -747,6 +759,7 @@
   function clearCustomer() {
     currentQR = ''; selectedPoints = 0;
     redeemLocked = false; redeemBusy = false;
+    pointsRequestId = null; redeemRequestId = null;
     disarmRedeem();
     document.getElementById('pointsInput').value = '';
     btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
@@ -805,6 +818,7 @@
     stopScanner();
     currentQR = data; selectedPoints = 0;
     redeemLocked = false; redeemBusy = false;
+    pointsRequestId = null; redeemRequestId = null;
     disarmRedeem();
     resetCustomerCard(data);
     setPointsDisplay(null, 'Loading…');
@@ -833,6 +847,7 @@
       selectedPoints = 0; btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
       return;
     }
+    pointsRequestId = null; // a different amount is a different intent
     selectedPoints = Math.max(-Cfg.maxPointsPerScan, Math.min(Cfg.maxPointsPerScan, val));
     // A number input's min/max are not enforced for typed values, and nothing
     // surfaced checkValidity(), so the field would read 5000 while the button
@@ -853,7 +868,8 @@
     var pointsBefore = currentPoints;
     btnAdd.disabled = true; btnAdd.textContent = 'Sending…';
     setStatus((adding ? 'Adding' : 'Removing') + ' points…', 'active');
-    var payload = { action: adding ? 'add_points' : 'remove_points', qr_data: qr, points: n, timestamp: new Date().toISOString() };
+    if (!pointsRequestId) pointsRequestId = newRequestId();
+    var payload = { action: adding ? 'add_points' : 'remove_points', qr_data: qr, points: n, request_id: pointsRequestId, timestamp: new Date().toISOString() };
     try {
       var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       var data = await readResponsePayload(resp);
@@ -862,6 +878,7 @@
         showToast((adding ? '+' : '−') + n + ' point' + (n > 1 ? 's' : '') + (adding ? ' added' : ' removed'), 'success');
         addLog((adding ? '+' : '−') + n + ' pts', adding ? 'add' : 'remove', qr);
         setStatus(adding ? 'Points added' : 'Points removed', 'success');
+        pointsRequestId = null; // this intent is done; the next one is new
         if (!stillSameCustomer) return; // another customer is on screen now
         btnAdd.textContent = adding ? 'Added' : 'Removed';
         if (adding) noteVisitNow();
@@ -912,7 +929,8 @@
     var pointsBefore = currentPoints;
     btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
     setStatus('Redeeming…', 'active');
-    var payload = { action: 'redeem_points', qr_data: qr, points_to_remove: Cfg.redeemCost, timestamp: new Date().toISOString() };
+    if (!redeemRequestId) redeemRequestId = newRequestId();
+    var payload = { action: 'redeem_points', qr_data: qr, points_to_remove: Cfg.redeemCost, request_id: redeemRequestId, timestamp: new Date().toISOString() };
     try {
       var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       // Read the body before announcing anything: a truncated read used to
@@ -925,6 +943,7 @@
         showToast('Free drink redeemed', 'gold', 3000);
         addLog('Redeemed −' + Cfg.redeemCost + ' pts', 'redeem', qr);
         setStatus('Redeemed', 'success');
+        redeemRequestId = null;
         if (!stillSameCustomer) return; // another customer is on screen now
         var remainingPoints = extractPoints(data);
         if (remainingPoints === null) remainingPoints = pointsBefore - Cfg.redeemCost;

@@ -58,3 +58,31 @@ test('upsertBackfill ignores duplicates by external id and counts what was store
     assert.deepEqual(again, { sent: 2, inserted: 0 });
   });
 });
+
+test('a request id makes the write idempotent, and is namespaced', async () => {
+  await withEnv({ url: 'https://db.supabase.co', key: 'svc' }, async () => {
+    let seen;
+    const fetchImpl = async (url, init) => { seen = { url, init }; return { ok: true, status: 201, text: async () => '' }; };
+
+    await ledger.recordEvent({ action: 'add', memberId: 'M1', points: 3, requestId: 'scan:abc' }, { fetchImpl });
+    assert.ok(seen.url.endsWith('/scan_events?on_conflict=external_id'), 'a retry must not become a second row');
+    assert.equal(seen.init.headers.Prefer, 'resolution=ignore-duplicates,return=minimal');
+    assert.equal(JSON.parse(seen.init.body)[0].external_id, 'scan:abc');
+
+    // Without a key, behaviour is unchanged: every call is a row.
+    await ledger.recordEvent({ action: 'lookup', memberId: 'M1' }, { fetchImpl });
+    assert.ok(seen.url.endsWith('/scan_events'));
+    assert.equal(seen.init.headers.Prefer, 'return=minimal');
+    assert.equal(JSON.parse(seen.init.body)[0].external_id, null);
+  });
+});
+
+test('the request id from the client is namespaced away from PassKit event ids', () => {
+  const { requestKey } = require('../api/loyalty')._internals;
+  assert.equal(requestKey({ request_id: 'abc-123' }), 'scan:abc-123');
+  assert.equal(requestKey({ request_id: '  spaced  ' }), 'scan:spaced');
+  assert.equal(requestKey({}), null);
+  assert.equal(requestKey({ request_id: '' }), null);
+  assert.equal(requestKey({ request_id: 42 }), null);
+  assert.equal(requestKey({ request_id: 'x'.repeat(65) }), null, 'oversized means no key, not a truncated one');
+});
