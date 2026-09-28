@@ -126,6 +126,25 @@
   .btn:disabled { opacity: 0.4; cursor: default; transform: none; }
   .btn.primary { background: var(--accent); color: var(--accent-ink); }
   .btn.gold { background: var(--gold-tint); color: var(--gold); }
+  /* Redeeming used to be one tap and now it is two, which is a habit change for
+     staff who have been doing this for months. A label they will not read is not
+     enough: the armed button inverts to solid gold and pulses, so "something is
+     waiting for me" is obvious from across the counter. Dark ink on gold
+     measures 12:1. */
+  .btn.gold.confirm {
+    background: var(--gold); color: #1c1c1e;
+    animation: confirmPulse 1.1s ease-out infinite;
+  }
+  @keyframes confirmPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255, 214, 10, 0.5); }
+    70%  { box-shadow: 0 0 0 14px rgba(255, 214, 10, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+  }
+  /* Still unmistakable without motion, for anyone who asked not to have it. */
+  @media (prefers-reduced-motion: reduce) {
+    .btn.gold.confirm { animation: none; box-shadow: 0 0 0 3px rgba(255, 214, 10, 0.55); }
+  }
+
   .btn.danger { background: rgba(255, 69, 58, 0.16); color: var(--red); }
   .btn.quiet { background: var(--fill); color: var(--text); }
   .btn.auto { width: auto; }
@@ -429,6 +448,9 @@
   // first tap only arms it.
   let redeemArmed = false;
   let redeemArmTimer = null;
+  // Long enough to read a prompt nobody has seen before, short enough that the
+  // button is not left live while the next customer walks up.
+  var REDEEM_CONFIRM_MS = 6000;
   // Idempotency keys, one per intent. A retry after a lost response reuses the
   // same key so the ledger records the visit once; changing the amount, scanning
   // someone else or succeeding all start a new one.
@@ -814,9 +836,18 @@
       btnAdd.disabled = false; btnAdd.textContent = 'Retry: ' + (adding ? 'add ' : 'remove ') + pointsLabel(n);
     }
   }
+  function armRedeem() {
+    redeemArmed = true;
+    btnRedeem.classList.add('confirm');
+    btnRedeemText.textContent = 'Tap again to confirm';
+    clearTimeout(redeemArmTimer);
+    redeemArmTimer = setTimeout(disarmRedeem, REDEEM_CONFIRM_MS);
+  }
+
   function disarmRedeem() {
     clearTimeout(redeemArmTimer);
     redeemArmTimer = null;
+    btnRedeem.classList.remove('confirm');
     if (!redeemArmed) return;
     redeemArmed = false;
     if (!redeemLocked && !redeemBusy && !btnRedeem.hidden) btnRedeemText.textContent = 'Redeem free drink';
@@ -827,15 +858,10 @@
     if (redeemLocked) { showToast('Already redeemed. Scan again for another.', 'error'); return; }
     if (typeof currentPoints !== 'number' || currentPoints < Cfg.redeemCost) { showToast('Needs ' + Cfg.redeemCost + ' points to redeem.', 'error'); return; }
     if (!redeemArmed) {
-      redeemArmed = true;
-      btnRedeemText.textContent = 'Tap again to confirm';
-      clearTimeout(redeemArmTimer);
-      redeemArmTimer = setTimeout(disarmRedeem, 4000);
+      armRedeem();
       return;
     }
-    clearTimeout(redeemArmTimer);
-    redeemArmTimer = null;
-    redeemArmed = false;
+    disarmRedeem();
     redeemBusy = true;
     var qr = currentQR;
     var pointsBefore = currentPoints;

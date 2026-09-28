@@ -112,6 +112,27 @@ test('the chart box is tall enough for the axis text it now carries', () => {
   assert.ok(h - padT - padB >= 180, 'the plot area is too short for the line to say anything');
 });
 
+test('the armed redeem button is unmistakable, with and without motion', () => {
+  // Redeeming went from one tap to two. Staff will not read a changed label,
+  // so the armed state has to look different, and it has to still look
+  // different for anyone who has asked their device for less motion.
+  assert.match(HTML, /\.btn\.gold\.confirm\s*\{[^}]*animation:\s*confirmPulse/,
+    'the armed button no longer pulses');
+  assert.match(HTML, /@keyframes confirmPulse/);
+
+  const reduced = /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n  \}/.exec(HTML);
+  assert.ok(reduced, 'no reduced-motion fallback: the armed state would be invisible without the animation');
+  assert.match(reduced[1], /\.btn\.gold\.confirm/);
+  assert.match(reduced[1], /animation:\s*none/);
+  assert.match(reduced[1], /box-shadow/, 'turning the animation off must leave something behind');
+
+  // Every route out of the armed state has to take the class with it, or the
+  // button keeps pulsing at the next customer.
+  assert.match(SCRIPT, /function disarmRedeem\(\)\s*\{[\s\S]*?classList\.remove\('confirm'\)/);
+  const adds = SCRIPT.match(/classList\.add\('confirm'\)/g) || [];
+  assert.equal(adds.length, 1, 'only armRedeem() should arm the button');
+});
+
 test('the API takes no application-level auth, which is deliberate', () => {
   // Reverted once already. If this fails, someone has added a gate to the page:
   // check that it was actually asked for (see CLAUDE.md).
