@@ -127,3 +127,33 @@ test('a real run stores the amount it could read and null for the rest', async (
   assert.equal(r.body.sent, 3);
   assert.equal(r.body.imported, 3);
 });
+
+test('a shifting event log is noticed and reported', async () => {
+  const writes = [];
+  stubServices(writes);
+  // The fixture is oldest-first, which is the stable case: new events land at
+  // the end, so offset paging cannot step over one.
+  const steady = await invoke('?dryRun=1');
+  assert.equal(steady.body.order, 'oldest-first');
+  assert.equal(steady.body.repeated, 0);
+  assert.equal(steady.body.warning, undefined);
+
+  // Now serve the log newest-first, and repeat an event across two pages -- what
+  // a live log looks like when it shifts mid-run.
+  const newestFirst = EVENTS.slice().reverse();
+  let page = 0;
+  const base = global.fetch;
+  global.fetch = async (url, init) => {
+    if (String(url).includes('/members/program/list/events/P1')) {
+      // A full page first, so the loop asks for a second one.
+      const slice = page++ === 0 ? newestFirst : [newestFirst[0]];
+      const padded = page === 1 ? slice.concat(Array.from({ length: 1000 - slice.length }, (_, i) => ({ id: 'pad' + i, eventType: 'EVENT_MEMBER_ENROLLED', date: '2026-01-01T00:00:00Z' }))) : slice;
+      return { ok: true, status: 200, text: async () => padded.map((e) => JSON.stringify({ result: e })).join('\n') };
+    }
+    return base(url, init);
+  };
+  const shifted = await invoke('?dryRun=1&pages=2');
+  assert.equal(shifted.body.order, 'newest-first');
+  assert.equal(shifted.body.repeated, 1, 'the event served on both pages is counted');
+  assert.match(shifted.body.warning, /re-run from offset=0/);
+});
