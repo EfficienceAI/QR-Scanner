@@ -263,8 +263,9 @@
   }
   .tip b { display: block; color: var(--text); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
   .tip.show { display: block; }
-  .foot { display: flex; justify-content: space-between; align-items: center; padding: 6px 16px 14px; font-size: 12px; color: var(--text-3); }
-  .foot button { background: none; border: none; color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; }
+  .foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 6px 16px 14px; font-size: 12px; color: var(--text-3); }
+  .foot span { min-width: 0; line-height: 1.35; }
+  .foot button { background: none; border: none; color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; flex-shrink: 0; }
   table.data { display: none; width: 100%; border-collapse: collapse; font-size: 13px; }
   table.data.show { display: table; }
   table.data th, table.data td { padding: 8px 16px; text-align: right; border-top: 1px solid var(--sep); font-variant-numeric: tabular-nums; }
@@ -956,6 +957,20 @@
     },
     note: function (text) { document.getElementById('statsNote').textContent = text; },
 
+    /**
+     * "1 Jan 2026 - 31 Aug 2026, by month": the window the server actually
+     * measured. A custom range longer than 120 days is widened to whole
+     * months, so asking for 15 Jan - 20 Aug returns a total that includes two
+     * weeks nobody asked for. The response was honest; the page never showed
+     * it. `to` is exclusive, so step back inside it before formatting.
+     */
+    windowLabel: function (data) {
+      var from = new Date(data.from), to = new Date(new Date(data.to).getTime() - 1000);
+      if (isNaN(from.getTime()) || isNaN(to.getTime())) return '';
+      var opts = { day: 'numeric', month: 'short', year: 'numeric' };
+      return from.toLocaleDateString('en-GB', opts) + ' – ' + to.toLocaleDateString('en-GB', opts) + ', by ' + (data.bucket || 'day');
+    },
+
     smoothPath: function (pts) {
       // Monotone cubic (Fritsch-Carlson): a soft curve that never overshoots the data.
       var n = pts.length;
@@ -1074,7 +1089,10 @@
       if (s.peak) sum += ' · peak ' + s.peak.label + ' (' + fmtNum(s.peak.scans) + ')';
       document.getElementById('statsSummary').textContent = sum;
       var per = data.bucket === 'hour' ? 'hour' : data.bucket === 'month' ? 'month' : 'day';
-      Chart.note(s.avgPerBucket ? 'Avg ' + fmtNum(s.avgPerBucket) + ' per ' + per + ' when open' : '');
+      var notes = [];
+      if (data.range === 'custom') notes.push(Chart.windowLabel(data));
+      if (s.avgPerBucket) notes.push('Avg ' + fmtNum(s.avgPerBucket) + ' per ' + per + ' when open');
+      Chart.note(notes.filter(Boolean).join(' · '));
     },
 
     table: function (data) {
