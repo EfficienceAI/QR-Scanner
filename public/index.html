@@ -18,7 +18,7 @@
     --sep: rgba(84, 84, 88, 0.55);
     --text: #f5f5f7;
     --text-2: rgba(235, 235, 245, 0.62);
-    --text-3: rgba(235, 235, 245, 0.32);
+    --text-3: rgba(235, 235, 245, 0.55);
     --accent: #0a84ff;
     --accent-ink: #ffffff;
     --accent-tint: rgba(10, 132, 255, 0.18);
@@ -246,6 +246,9 @@
   .chart-wrap { position: relative; padding: 4px 8px 6px; transition: opacity 0.25s; }
   .chart-wrap.loading { opacity: 0.45; }
   .chart-wrap svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  /* px here are viewBox units: the svg renders at about 0.73x on a phone, so
+     10 used to land at roughly 7 effective pixels in the failing grey above. */
+  .chart-wrap svg text { font-family: var(--font); font-size: 16px; fill: var(--text-3); }
   .chart-wrap .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); font-size: 13px; font-weight: 500; }
   .tip {
     position: absolute; pointer-events: none; display: none;
@@ -359,7 +362,7 @@
       <button class="btn quiet auto" style="min-height:40px;padding:0 14px;font-size:14px" onclick="applyCustom()">Go</button>
     </div>
     <div class="chart-wrap" id="chartWrap">
-      <svg id="chart" viewBox="0 0 448 220" preserveAspectRatio="none" aria-label="Scans over time"></svg>
+      <svg id="chart" viewBox="0 0 448 220" aria-label="Scans over time"></svg>
       <div class="empty" id="chartEmpty" style="display:none">No scans in this period</div>
       <div class="tip" id="tip"></div>
     </div>
@@ -899,7 +902,7 @@
     svg: document.getElementById('chart'),
     wrap: document.getElementById('chartWrap'),
     tip: document.getElementById('tip'),
-    W: 448, H: 220, padL: 34, padR: 14, padT: 14, padB: 26,
+    W: 448, H: 220, padL: 48, padR: 12, padT: 14, padB: 30,
 
     load: async function (range, from, to) {
       var seq = ++Chart.seq;
@@ -975,7 +978,7 @@
       [0, 0.5, 1].forEach(function (f) {
         var y = yAt(max * f);
         svg.appendChild(el('line', { x1: L, x2: W - R, y1: y, y2: y, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': '1' }));
-        var t = el('text', { x: L - 8, y: y + 4, 'text-anchor': 'end', fill: 'rgba(235,235,245,0.32)', 'font-size': '10', 'font-family': 'inherit' });
+        var t = el('text', { x: L - 8, y: y + 5, 'text-anchor': 'end' });
         t.textContent = fmtNum(Math.round(max * f)); svg.appendChild(t);
       });
 
@@ -984,7 +987,7 @@
       series.forEach(function (b, i) {
         if (i % step !== 0 && i !== n - 1) return;
         if (i !== n - 1 && n - 1 - i < step * 0.6) return;
-        var t = el('text', { x: xAt(i), y: H - 8, 'text-anchor': i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle', fill: 'rgba(235,235,245,0.32)', 'font-size': '10', 'font-family': 'inherit' });
+        var t = el('text', { x: xAt(i), y: H - 9, 'text-anchor': i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle' });
         t.textContent = b.label; svg.appendChild(t);
       });
 
