@@ -62,10 +62,10 @@ test('a date that does not exist is rejected, not silently shifted', () => {
 
 test('series rows land in the right local bucket and gaps are zero-filled', () => {
   const p = planRange('today', '', '', new Date('2026-09-28T10:00:00Z'));
-  const rows = [{ bucket_start: '2026-09-28T08:00:00+00:00', scans: '7', adds: '6', redeems: '1', points_added: '9' }];
+  const rows = [{ bucket_start: '2026-09-28T08:00:00+00:00', scans: '7', adds: '6', redeems: '1', points_stamped: '18', points_burned: '9' }];
   const s = mergeSeries(p, rows);
   assert.equal(s.length, 24);
-  assert.deepEqual(s[9], { key: '2026-09-28T09', label: '09:00', scans: 7, adds: 6, redeems: 1, points: 9 });
+  assert.deepEqual(s[9], { key: '2026-09-28T09', label: '09:00', scans: 7, adds: 6, redeems: 1, points: 18, pointsBurned: 9 });
   assert.equal(s[8].scans, 0);
   const sum = summarize(s);
   assert.equal(sum.scans, 7); assert.deepEqual(sum.peak, { key: '2026-09-28T09', label: '09:00', scans: 7 }); assert.equal(sum.avgPerBucket, 7);
@@ -74,7 +74,7 @@ test('series rows land in the right local bucket and gaps are zero-filled', () =
 test('buildStats composes totals and series', async () => {
   const r = await buildStats('week', '', '', {
     now: new Date('2026-09-28T10:00:00Z'),
-    getSeries: async (bucket, from, to) => { assert.equal(bucket, 'day'); assert.equal(from, '2026-09-21T23:00:00.000Z'); return [{ bucket_start: '2026-09-27T23:00:00+00:00', scans: 25, adds: 24, redeems: 3, points_added: 30 }]; },
+    getSeries: async (bucket, from, to) => { assert.equal(bucket, 'day'); assert.equal(from, '2026-09-21T23:00:00.000Z'); return [{ bucket_start: '2026-09-27T23:00:00+00:00', scans: 25, adds: 24, redeems: 3, points_stamped: 30, points_burned: 27 }]; },
     getTotals: async () => ({ today: 25, total: 4812, firstAt: '2026-06-29T10:00:00Z', liveSince: '2026-09-28T09:00:00Z' }),
   });
   assert.equal(r.status, 200);

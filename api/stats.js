@@ -137,7 +137,7 @@ function planMonths(fromParts, toParts, range) {
 }
 
 function mergeSeries(plan, rows) {
-  const byKey = new Map(plan.buckets.map((b) => [b.key, { ...b, scans: 0, adds: 0, redeems: 0, points: 0 }]));
+  const byKey = new Map(plan.buckets.map((b) => [b.key, { ...b, scans: 0, adds: 0, redeems: 0, points: 0, pointsBurned: 0 }]));
   for (const r of rows) {
     const parts = T.localParts(new Date(r.bucket_start), tz());
     const key = plan.keyOf(parts);
@@ -146,7 +146,10 @@ function mergeSeries(plan, rows) {
     slot.scans = Number(r.scans) || 0;
     slot.adds = Number(r.adds) || 0;
     slot.redeems = Number(r.redeems) || 0;
-    slot.points = Number(r.points_added) || 0;
+    // points_stamped is gross stamps, not a net figure; points_burned is the
+    // other side of it. See supabase/migrations/003.
+    slot.points = Number(r.points_stamped) || 0;
+    slot.pointsBurned = Number(r.points_burned) || 0;
   }
   return [...byKey.values()];
 }
