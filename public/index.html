@@ -355,12 +355,14 @@
   <!-- Stats: below the fold on purpose -->
   <section class="stats card" id="stats">
     <div class="head"><h2>Scans</h2><div class="sum" id="statsSummary">&nbsp;</div></div>
-    <div class="seg" id="seg" role="tablist">
-      <button data-range="today">Today</button>
-      <button data-range="week" class="on">Week</button>
-      <button data-range="month">Month</button>
-      <button data-range="year">Year</button>
-      <button data-range="custom">Custom</button>
+    <!-- A group of toggle buttons, not a tablist: there are no tabpanels to
+         switch between, so aria-pressed is what describes this honestly. -->
+    <div class="seg" id="seg" role="group" aria-label="Chart range">
+      <button type="button" data-range="today" aria-pressed="false">Today</button>
+      <button type="button" data-range="week" class="on" aria-pressed="true">Week</button>
+      <button type="button" data-range="month" aria-pressed="false">Month</button>
+      <button type="button" data-range="year" aria-pressed="false">Year</button>
+      <button type="button" data-range="custom" aria-pressed="false">Custom</button>
     </div>
     <div class="range" id="rangeRow">
       <input type="date" id="fromDate" aria-label="From">
@@ -1108,7 +1110,11 @@
 
     select: function (range) {
       Chart.range = range;
-      document.querySelectorAll('#seg button').forEach(function (b) { b.classList.toggle('on', b.dataset.range === range); });
+      document.querySelectorAll('#seg button').forEach(function (b) {
+        var on = b.dataset.range === range;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
       document.getElementById('rangeRow').classList.toggle('show', range === 'custom');
       if (range === 'custom') {
         var to = document.getElementById('toDate'), from = document.getElementById('fromDate');
