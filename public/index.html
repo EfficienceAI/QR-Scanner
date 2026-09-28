@@ -58,6 +58,12 @@
   }
   /* Everything above the chart fills at least one screen, so the chart only appears on scroll. */
   .above { display: flex; flex-direction: column; gap: 14px; min-height: calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+  /* With no customer loaded the fold leaves a tall gap. Pinning the status
+     strip and what follows it to the bottom of the screen turns that into
+     deliberate spacing rather than something that looks half-rendered. */
+  .above .status { margin-top: auto; }
+  .hint { background: none; border: none; color: var(--text-3); font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .hint svg { width: 13px; height: 13px; }
 
   /* ---------- header ---------- */
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 6px 2px 2px; }
@@ -352,6 +358,11 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
   </button>
   <div class="log card" id="log"></div>
+
+  <button class="hint" type="button" onclick="showStats()">
+    Scans and stats
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
  </div>
 
   <!-- Stats: below the fold on purpose -->
@@ -1191,6 +1202,10 @@
     var from = document.getElementById('fromDate').value, to = document.getElementById('toDate').value;
     if (from && to) Chart.load('custom', from, to);
   }
+  function showStats() {
+    document.getElementById('stats').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function toggleTable() {
     // The table is the chart's text alternative, and while it is display:none a
     // screen reader cannot see it at all -- so say whether it is open, and name
