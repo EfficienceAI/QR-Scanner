@@ -417,6 +417,11 @@
   let currentMember = null;
   let currentHistory = null;
   let currentPoints = null;
+  // One redemption per scan. Set on success and cleared only by the next scan,
+  // so a balance that is still above the cost cannot re-arm the gold button
+  // under the word "Redeemed".
+  let redeemLocked = false;
+  let redeemBusy = false;
 
   function setStatus(text, state) {
     statusText.textContent = text;
@@ -544,7 +549,10 @@
     pointsValue.textContent = points === null ? '—' : String(points);
     pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= 9 ? 'A free drink is available.' : (9 - points) + ' more to a free drink.'));
     btnRedeem.hidden = !(typeof points === 'number' && points >= 9);
-    if (!btnRedeem.hidden) { btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink'; }
+    if (!btnRedeem.hidden) {
+      btnRedeem.disabled = redeemLocked || redeemBusy;
+      if (!redeemLocked && !redeemBusy) btnRedeemText.textContent = 'Redeem free drink';
+    }
   }
 
   async function readResponsePayload(resp) {
@@ -721,6 +729,7 @@
   async function handleScan(data) {
     stopScanner();
     currentQR = data; selectedPoints = 0;
+    redeemLocked = false; redeemBusy = false;
     resetCustomerCard(data);
     setPointsDisplay(null, 'Loading…');
     document.getElementById('pointsInput').value = '';
@@ -787,7 +796,10 @@
     }
   }
   async function sendRedeem() {
+    if (redeemBusy) return;
+    if (redeemLocked) { showToast('Already redeemed. Scan again for another.', 'error'); return; }
     if (typeof currentPoints !== 'number' || currentPoints < 9) { showToast('Needs 9 points to redeem.', 'error'); return; }
+    redeemBusy = true;
     btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
     setStatus('Redeeming…', 'active');
     var payload = { action: 'redeem_points', qr_data: currentQR, points_to_remove: 9, timestamp: new Date().toISOString() };
@@ -799,6 +811,7 @@
         setStatus('Redeemed', 'success');
         var remainingPoints = extractPoints(await readResponsePayload(resp));
         if (remainingPoints === null) remainingPoints = currentPoints - 9;
+        redeemLocked = true; redeemBusy = false;
         setPointsDisplay(remainingPoints);
         btnRedeemText.textContent = 'Redeemed';
         noteRedeemNow();
@@ -806,17 +819,20 @@
         showToast('Could not redeem. Try again.', 'error');
         addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
         setStatus('Could not redeem', 'error');
+        redeemBusy = false;
         btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
       }
     } catch (err) {
       showToast('Network error. Try again.', 'error');
       addLog('Redeem error', 'fail', err.message);
       setStatus('Network error', 'error');
+      redeemBusy = false;
       btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
     }
   }
   function resetAndScan() {
     currentQR = ''; selectedPoints = 0;
+    redeemLocked = false; redeemBusy = false;
     resetCustomerCard('');
     setPointsDisplay(null, 'Scan a customer to load their balance.');
     resultPanel.classList.remove('active');
