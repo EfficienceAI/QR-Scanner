@@ -933,7 +933,7 @@
   };
 
   var Chart = {
-    range: 'week', loaded: false, data: null, seq: 0,
+    range: 'week', loaded: false, data: null, seq: 0, hideTimer: null,
     svg: document.getElementById('chart'),
     wrap: document.getElementById('chartWrap'),
     tip: document.getElementById('tip'),
@@ -1008,6 +1008,7 @@
       var ns = 'http://www.w3.org/2000/svg';
       var el = function (tag, attrs) { var e = document.createElementNS(ns, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; };
       while (svg.firstChild) svg.removeChild(svg.firstChild);
+      clearTimeout(Chart.hideTimer);
       Chart.tip.classList.remove('show');
       document.getElementById('chartEmpty').style.display = data.summary && data.summary.scans > 0 ? 'none' : 'grid';
 
@@ -1076,15 +1077,32 @@
         var wrapRect = Chart.wrap.getBoundingClientRect();
         var px = rect.left - wrapRect.left + (p.x / W) * rect.width;
         var py = rect.top - wrapRect.top + (p.y / H) * rect.height;
-        Chart.tip.style.left = Math.max(70, Math.min(wrapRect.width - 70, px)) + 'px';
-        Chart.tip.style.top = Math.max(44, py) + 'px';
+        // Show it before measuring: offsetWidth is 0 while display is none.
+        // The tooltip is translated -50%, so the clamp needs its real
+        // half-width. A fixed 70 assumed 140px; it measures nearer 193px, which
+        // put the leftmost tooltip 10px off screen and the rightmost 28px past
+        // the card. Never clamp past the middle, in case it is wider than the card.
         Chart.tip.classList.add('show');
+        var half = Chart.tip.offsetWidth / 2;
+        var lo = Math.min(half + 8, wrapRect.width / 2);
+        var hi = Math.max(wrapRect.width - half - 8, wrapRect.width / 2);
+        Chart.tip.style.left = Math.max(lo, Math.min(hi, px)) + 'px';
+        Chart.tip.style.top = Math.max(44, py) + 'px';
       };
-      var hide = function () { cross.style.display = 'none'; ring.style.display = 'none'; dot.style.display = 'none'; Chart.tip.classList.remove('show'); };
+      var hide = function () {
+        clearTimeout(Chart.hideTimer);
+        cross.style.display = 'none'; ring.style.display = 'none'; dot.style.display = 'none';
+        Chart.tip.classList.remove('show');
+      };
       hit.addEventListener('pointermove', function (e) { show(e.clientX); });
       hit.addEventListener('pointerdown', function (e) { show(e.clientX); });
       hit.addEventListener('pointerleave', hide);
-      hit.addEventListener('pointerup', function () { setTimeout(hide, 1500); });
+      // The handle used to be dropped on the floor, so this chart's timer went
+      // on to hide the NEXT chart's tooltip 1.5s after switching range.
+      hit.addEventListener('pointerup', function () {
+        clearTimeout(Chart.hideTimer);
+        Chart.hideTimer = setTimeout(hide, 1500);
+      });
 
       var s = data.summary || {};
       var sum = fmtNum(s.scans || 0) + ' scans';
