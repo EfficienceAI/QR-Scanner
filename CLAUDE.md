@@ -77,10 +77,18 @@ Two systems hold data:
 ## Development
 
 ```sh
-npm test        # node --test — no framework, no install step
+npm run verify   # unit tests, then end-to-end against a mock backend
+npm run dev      # the whole app on localhost:3000, nothing real is touched
+npm test         # unit tests alone (node --test, no framework, no install step)
 ```
 
-Edit `public/index.html` directly and open it in a browser, or deploy to
+`npm run dev` runs `scripts/dev-server.mjs`, which serves `public/` and
+dispatches `/api/*` to the same handlers Vercel runs. Its `--mock` backend
+stubs PassKit and Supabase in memory, so no credentials are needed and no real
+balance moves. The mock reimplements the two reporting RPCs in JavaScript, so
+it proves the page and the API but **not** the SQL in the migrations.
+
+Alternatively edit `public/index.html` and open it directly, or deploy to
 Vercel (push to deploy). The camera needs a secure context: an `https://`
 address, or `http://localhost`, which browsers already treat as secure — a
 LAN IP will not work.

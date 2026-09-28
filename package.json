@@ -4,6 +4,9 @@
   "version": "2.0.0",
   "description": "Loyalty scanner for La Bottega Milanese: static page + Vercel API routes (PassKit balances, own scan ledger in Supabase).",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "dev": "node scripts/dev-server.mjs --mock",
+    "dev:live": "node scripts/dev-server.mjs",
+    "verify": "node --test && node scripts/dev-server.mjs --mock --selftest"
   }
 }

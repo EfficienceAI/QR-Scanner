@@ -220,6 +220,53 @@ on this branch, set them for the **Preview** environment only.
 
 See `.env.example`.
 
+## Running and testing it locally
+
+```sh
+npm run verify     # everything: unit tests, then end-to-end against a mock backend
+npm run dev        # the whole app at http://localhost:3000, mock backend
+```
+
+`npm run verify` is the one command to run before pushing. It runs the unit
+suite (`node --test`) and then starts the dev server with a stubbed PassKit and
+Supabase and drives it over HTTP, checking the behaviour each fix was about. It
+exits non-zero if anything regresses, so it works in CI as-is.
+
+`npm run dev` serves `public/` and dispatches `/api/*` to the same handler files
+Vercel runs, with no build step and no Vercel CLI. The mock backend means no
+credentials are needed and **no real customer balance moves**. `http://localhost`
+is a secure context, so the camera works there.
+
+Scan any QR code at all: an id the mock does not recognise becomes a member with
+a balance derived from the string. For the specific cases, put one of these in a
+QR code:
+
+| id | state | what to look for |
+| --- | --- | --- |
+| `M1000` | 4 points | no Redeem button at all |
+| `M2000` | 18 points | redeem once, then the button must go dead reading "Redeemed" |
+| `M3000` | 0 points, no history | the "First visit" pill |
+
+No camera to hand? Drive the API directly:
+
+```sh
+curl -s -X POST localhost:3000/api/loyalty -H "content-type: application/json" \
+  -d '{"action":"lookup_customer","qr_data":"M2000"}'
+curl -s "localhost:3000/api/stats?range=week"
+curl -s -X POST -H "x-admin-secret: mock-admin-secret" \
+  "localhost:3000/api/admin/backfill?dryRun=1"
+```
+
+Use `npm run dev:live` to run against the real PassKit and Supabase instead;
+it needs the environment variables below, and it moves real balances.
+
+**What local testing cannot cover:** the SQL. The mock reimplements the two
+reporting functions in JavaScript so the chart has something to draw, which
+means a mistake in a migration cannot show up here. Run the migrations against
+a Supabase branch and compare `select * from scan_totals('Europe/London');`
+with a hand count before merging. `test/sql-contract.test.js` only catches
+naming drift between the SQL and the code that calls it.
+
 ## Testing this branch without touching production
 
 Preview deployments on this project sit behind **Vercel Authentication**
