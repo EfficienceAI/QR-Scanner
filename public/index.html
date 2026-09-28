@@ -2,569 +2,352 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Loyalty Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Loyalty</title>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
   :root {
-    --bg: #0a0a0f;
-    --surface: #13131a;
-    --surface2: #1a1a24;
-    --border: #1e1e2a;
-    --text: #e4e4ed;
-    --text-dim: #6b6b80;
-    --accent: #22d68a;
-    --accent-glow: rgba(34, 214, 138, 0.12);
-    --gold: #f5a623;
-    --gold-glow: rgba(245, 166, 35, 0.12);
-    --danger: #ef4444;
-    --radius: 14px;
+    --bg: #000;
+    --card: #1c1c1e;
+    --card-2: #2c2c2e;
+    --fill: rgba(120, 120, 128, 0.18);
+    --fill-strong: rgba(120, 120, 128, 0.32);
+    --sep: rgba(84, 84, 88, 0.55);
+    --text: #f5f5f7;
+    --text-2: rgba(235, 235, 245, 0.62);
+    --text-3: rgba(235, 235, 245, 0.32);
+    --accent: #30d158;
+    --accent-ink: #04210f;
+    --accent-tint: rgba(48, 209, 88, 0.16);
+    --blue: #0a84ff;
+    --gold: #ffd60a;
+    --gold-tint: rgba(255, 214, 10, 0.14);
+    --red: #ff453a;
+    --radius: 22px;
+    --radius-sm: 14px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
 
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg); }
   body {
-    font-family: 'DM Sans', sans-serif;
+    font-family: var(--font);
     background: var(--bg);
     color: var(--text);
     min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    display: flex; flex-direction: column; align-items: center;
+    -webkit-font-smoothing: antialiased;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
   }
+  button { font-family: var(--font); }
 
   .app {
-    width: 100%;
-    max-width: 480px;
-    padding: 20px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-height: 100dvh;
+    width: 100%; max-width: 480px;
+    padding: 14px 16px 48px;
+    display: flex; flex-direction: column; gap: 14px;
   }
 
-  header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding-bottom: 4px;
+  /* ---------- header ---------- */
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 6px 2px 2px; }
+  .brand h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+  .brand p { font-size: 13px; color: var(--text-2); margin-top: 4px; font-weight: 500; }
+
+  .counter {
+    display: flex; align-items: stretch;
+    background: var(--card); border: 1px solid var(--sep); border-radius: 16px;
+    overflow: hidden; flex-shrink: 0;
+  }
+  .counter .cell { padding: 8px 12px; min-width: 64px; text-align: right; }
+  .counter .cell + .cell { border-left: 1px solid var(--sep); }
+  .counter .label { font-size: 11px; color: var(--text-3); font-weight: 500; letter-spacing: 0.01em; }
+  .counter .num { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin-top: 1px; }
+  .counter .num.small { font-size: 16px; color: var(--text-2); font-weight: 600; margin-top: 4px; }
+  .counter.dim .num { color: var(--text-3); }
+
+  /* ---------- scanner ---------- */
+  .scanner {
+    position: relative; width: 100%; aspect-ratio: 4 / 3;
+    border-radius: var(--radius); overflow: hidden;
+    background: var(--card); border: 1px solid var(--sep);
+  }
+  .scanner video, .scanner canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .scanner canvas { display: none; }
+  .viewfinder { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 2; }
+  .frame { width: 58%; aspect-ratio: 1; position: relative; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38); border-radius: 18px; }
+  .frame i { position: absolute; width: 26px; height: 26px; border: 3px solid #fff; border-radius: 6px; }
+  .frame i:nth-child(1) { top: -2px; left: -2px; border-right: 0; border-bottom: 0; border-radius: 10px 0 0 0; }
+  .frame i:nth-child(2) { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-radius: 0 10px 0 0; }
+  .frame i:nth-child(3) { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-radius: 0 0 0 10px; }
+  .frame i:nth-child(4) { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-radius: 0 0 10px 0; }
+  .frame::after {
+    content: ''; position: absolute; left: 8%; right: 8%; top: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(48, 209, 88, 0.9), transparent);
+    animation: scan 2.2s ease-in-out infinite;
+  }
+  @keyframes scan { 0%, 100% { top: 4%; opacity: 0.2; } 50% { top: 94%; opacity: 1; } }
+
+  .placeholder {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    color: var(--text-2); font-size: 15px; font-weight: 500;
+  }
+  .placeholder svg { width: 44px; height: 44px; color: var(--text-3); }
+
+  .btn {
+    border: none; border-radius: var(--radius-sm); cursor: pointer;
+    font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+    min-height: 50px; padding: 0 22px; width: 100%;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    transition: transform 0.12s ease, opacity 0.2s ease, background 0.2s ease;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  .btn.gold { background: var(--gold-tint); color: var(--gold); }
+  .btn.quiet { background: var(--fill); color: var(--text); }
+  .btn.auto { width: auto; }
+  .btn svg { width: 18px; height: 18px; }
+
+  .stop {
+    position: absolute; bottom: 12px; right: 12px; z-index: 5;
+    background: rgba(28, 28, 30, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 999px;
+    padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
   }
 
-  .logo {
-    width: 40px; height: 40px;
-    background: linear-gradient(135deg, var(--accent), #1ab87a);
-    border-radius: 11px;
+  /* ---------- customer sheet ---------- */
+  .sheet { display: none; flex-direction: column; gap: 12px; animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .sheet.active { display: flex; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+  .card { background: var(--card); border: 1px solid var(--sep); border-radius: var(--radius); overflow: hidden; }
+  .row { padding: 14px 16px; }
+  .row + .row { border-top: 1px solid var(--sep); }
+
+  .customer { display: flex; align-items: center; gap: 14px; }
+  .avatar {
+    width: 50px; height: 50px; border-radius: 50%; flex-shrink: 0;
+    background: var(--accent-tint); color: var(--accent);
+    display: grid; place-items: center; font-weight: 700; font-size: 17px; letter-spacing: 0.02em;
+  }
+  .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .avatar svg { width: 24px; height: 24px; }
+  .who { flex: 1; min-width: 0; }
+  .who .name { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+  .who .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; font-size: 13px; color: var(--text-2); }
+  .who .id { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); margin-top: 5px; word-break: break-all; }
+
+  .pill { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
+  .pill.gold { background: var(--gold-tint); color: var(--gold); }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; }
+  .tile { padding: 14px 16px; min-width: 0; }
+  .tile + .tile { border-left: 1px solid var(--sep); }
+  .tile .label { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .tile .value { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin-top: 4px; line-height: 1.2; }
+  .tile .value.gold { color: var(--gold); }
+  .tile .value.dim { color: var(--text-3); font-weight: 600; }
+  .tile .sub { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+
+  .points { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .points .label { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .points .hero { font-size: 52px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; margin-top: 4px; }
+  .points .copy { font-size: 13px; color: var(--text-2); text-align: right; max-width: 55%; }
+
+  .stepper { display: flex; align-items: center; gap: 12px; }
+  .stepper .label { font-size: 13px; color: var(--text-2); font-weight: 500; flex: 1; }
+  .stepper button {
+    width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--fill-strong); color: var(--text); font-size: 24px; font-weight: 500; line-height: 1;
     display: grid; place-items: center;
-    flex-shrink: 0;
   }
-
-  .logo svg { width: 22px; height: 22px; }
-
-  header h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
-  header p { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
-
-  .scanner-container {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 4/3;
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--surface);
-    border: 1px solid var(--border);
+  .stepper button:active { background: var(--fill); }
+  .stepper input {
+    width: 64px; height: 44px; border: none; border-radius: 12px; outline: none;
+    background: var(--fill); color: var(--text); text-align: center;
+    font-family: var(--font); font-size: 22px; font-weight: 700; -moz-appearance: textfield;
   }
+  .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .stepper input::placeholder { color: var(--text-3); }
 
-  .scanner-container video,
-  .scanner-container canvas {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    object-fit: cover;
-  }
+  .actions { display: flex; flex-direction: column; gap: 10px; }
 
-  .scanner-container canvas { display: none; }
+  /* ---------- status + log ---------- */
+  .status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--sep); font-size: 13px; color: var(--text-2); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+  .dot.active { background: var(--accent); animation: pulse 1.4s infinite; }
+  .dot.success { background: var(--accent); }
+  .dot.error { background: var(--red); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-  .scanner-overlay {
-    position: absolute; inset: 0;
-    display: grid; place-items: center;
-    pointer-events: none; z-index: 2;
-  }
-
-  .scan-frame {
-    width: 55%; aspect-ratio: 1;
-    border: 2px solid rgba(34, 214, 138, 0.5);
-    border-radius: 16px;
-    position: relative;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
-  }
-
-  .scan-frame::before {
-    content: '';
-    position: absolute;
-    top: -2px; left: 50%;
-    transform: translateX(-50%);
-    width: 80%; height: 2px;
-    background: var(--accent);
-    box-shadow: 0 0 14px var(--accent);
-    animation: scanLine 2s ease-in-out infinite;
-  }
-
-  @keyframes scanLine {
-    0%, 100% { top: -2px; }
-    50% { top: 100%; }
-  }
-
-  .scanner-placeholder {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 10px; color: var(--text-dim);
-    font-size: 14px; z-index: 3;
-    font-weight: 500;
-  }
-
-  .scanner-placeholder svg { opacity: 0.25; }
-
-  .btn-scan-start {
-    margin-top: 8px;
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 10px;
-    padding: 12px 32px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: opacity 0.2s, transform 0.1s;
-  }
-
-  .btn-scan-start:active { transform: scale(0.96); }
-
-  .btn-stop {
-    position: absolute;
-    bottom: 12px; right: 12px;
-    background: rgba(0,0,0,0.6);
-    backdrop-filter: blur(8px);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 8px;
-    padding: 8px 16px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    z-index: 5;
-  }
-
-  .result-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 18px;
-    display: none;
-    flex-direction: column;
-    gap: 16px;
-    animation: slideUp 0.3s ease-out;
-  }
-
-  .result-panel.active { display: flex; }
-
-  @keyframes slideUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .customer-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .customer-avatar {
-    width: 44px; height: 44px;
-    background: var(--accent-glow);
-    border: 2px solid var(--accent);
-    border-radius: 50%;
-    display: grid; place-items: center;
-    color: var(--accent);
-    flex-shrink: 0;
-  }
-
-  .customer-avatar svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  .customer-detail { flex: 1; }
-  .customer-detail .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-  .customer-detail .value { font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 2px; word-break: break-all; }
-  .customer-detail .name { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
-  .customer-detail .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 5px; font-size: 12px; color: var(--text-dim); }
-  .customer-detail .id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); opacity: 0.65; margin-top: 5px; word-break: break-all; }
-
-  .customer-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-  .customer-avatar .initials { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; }
-
-  .pill {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 8px; border-radius: 999px;
-    font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  }
-  .pill.tier { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(34, 214, 138, 0.35); }
-  .pill.gold { background: var(--gold-glow); color: var(--gold); border: 1px solid rgba(245, 166, 35, 0.45); }
-
-  .visit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .visit-tile {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 14px;
-    min-width: 0;
-  }
-  .visit-tile .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
-  .visit-tile .value { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; line-height: 1.2; }
-  .visit-tile .value.gold { color: var(--gold); }
-  .visit-tile .value.dim { color: var(--text-dim); font-weight: 600; }
-  .visit-tile .sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
-
-  .points-summary {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-  }
-
-  .points-summary-top {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .points-value {
-    font-size: 40px;
-    line-height: 1;
-    font-weight: 800;
-    letter-spacing: -0.05em;
-  }
-
-  .points-copy {
-    font-size: 13px;
-    color: var(--text-dim);
-    text-align: right;
-  }
-
-  .section-label {
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
-  }
-
-  .points-stepper {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    background: var(--surface2);
-    border: 2px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-  }
-
-  .stepper-btn {
-    width: 64px;
-    height: 64px;
-    background: transparent;
-    border: none;
-    color: var(--accent);
-    font-size: 28px;
-    font-weight: 700;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    transition: background 0.15s;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .stepper-btn:active { background: var(--accent-glow); }
-
-  .stepper-input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    border-left: 1px solid var(--border);
-    border-right: 1px solid var(--border);
-    color: var(--text);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 32px;
-    font-weight: 800;
-    text-align: center;
-    height: 64px;
-    outline: none;
-    -moz-appearance: textfield;
-  }
-
-  .stepper-input::-webkit-outer-spin-button,
-  .stepper-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-
-  .stepper-input::placeholder { color: var(--text-dim); opacity: 0.4; }
-
-  .actions {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .btn-add {
-    width: 100%;
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 10px;
-    padding: 14px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: opacity 0.2s, transform 0.1s;
-  }
-
-  .btn-add:active { transform: scale(0.97); }
-  .btn-add:disabled { opacity: 0.35; cursor: not-allowed; }
-
-  .btn-redeem {
-    width: 100%;
-    background: var(--gold-glow);
-    color: var(--gold);
-    border: 2px solid var(--gold);
-    border-radius: 10px;
-    padding: 14px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: opacity 0.2s, transform 0.1s;
-  }
-
-  .btn-redeem[hidden] { display: none !important; }
-
-  .btn-redeem:active { transform: scale(0.97); }
-
-  .btn-new-scan {
-    width: 100%;
-    background: transparent;
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .status-bar {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    font-size: 13px;
-    color: var(--text-dim);
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--text-dim);
-    flex-shrink: 0;
-  }
-
-  .status-dot.active { background: var(--accent); animation: pulse 1.5s infinite; }
-  .status-dot.error { background: var(--danger); }
-  .status-dot.success { background: var(--accent); }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
+  .disclosure { background: none; border: none; color: var(--text-2); font-size: 13px; font-weight: 500; cursor: pointer; padding: 6px 0; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .disclosure svg { width: 14px; height: 14px; transition: transform 0.2s; }
+  .disclosure.open svg { transform: rotate(180deg); }
+  .log { display: none; flex-direction: column; }
+  .log.open { display: flex; }
+  .log-entry { padding: 10px 14px; font-size: 12.5px; font-family: var(--mono); word-break: break-all; }
+  .log-entry + .log-entry { border-top: 1px solid var(--sep); }
+  .log-entry .time { color: var(--text-3); margin-right: 8px; }
+  .log-entry .add { color: var(--accent); }
+  .log-entry .redeem { color: var(--gold); }
+  .log-entry .fail { color: var(--red); }
 
   .toast {
-    position: fixed;
-    top: 20px; left: 50%;
-    transform: translateX(-50%) translateY(-100px);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 22px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    z-index: 999;
-    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-    text-align: center;
-    max-width: 90%;
+    position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%) translateY(-90px);
+    background: rgba(44, 44, 46, 0.86); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    color: var(--text); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 999px;
+    padding: 12px 20px; font-size: 14px; font-weight: 600; z-index: 999; text-align: center; max-width: 90%;
+    transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   }
-
   .toast.show { transform: translateX(-50%) translateY(0); }
-  .toast.success { border-color: var(--accent); color: var(--accent); }
-  .toast.error { border-color: var(--danger); color: var(--danger); }
-  .toast.gold { border-color: var(--gold); color: var(--gold); }
+  .toast.success { color: var(--accent); }
+  .toast.gold { color: var(--gold); }
+  .toast.error { color: var(--red); }
 
-  .log-toggle {
-    background: none; border: none;
-    color: var(--text-dim);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    padding: 8px 0;
-    text-align: center;
-    width: 100%;
+  /* ---------- stats ---------- */
+  .stats { margin-top: 10px; }
+  .stats .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 16px 10px; }
+  .stats .head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+  .stats .head .sum { font-size: 13px; color: var(--text-2); text-align: right; }
+  .seg { display: flex; margin: 0 16px 12px; padding: 2px; background: var(--fill); border-radius: 10px; }
+  .seg button { flex: 1; border: none; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 600; padding: 7px 0; border-radius: 8px; cursor: pointer; }
+  .seg button.on { background: #636366; color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+  .range { display: none; gap: 8px; margin: 0 16px 12px; }
+  .range.show { display: flex; }
+  .range input { flex: 1; min-width: 0; height: 40px; border: none; border-radius: 10px; background: var(--fill); color: var(--text); padding: 0 10px; font-family: var(--font); font-size: 14px; color-scheme: dark; }
+  .chart-wrap { position: relative; padding: 4px 8px 6px; transition: opacity 0.25s; }
+  .chart-wrap.loading { opacity: 0.45; }
+  .chart-wrap svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  .chart-wrap .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); font-size: 13px; font-weight: 500; }
+  .tip {
+    position: absolute; pointer-events: none; display: none;
+    background: rgba(44, 44, 46, 0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 8px 11px;
+    font-size: 12px; color: var(--text-2); white-space: nowrap; transform: translate(-50%, -110%);
   }
-
-  .log {
-    display: none;
-    flex-direction: column;
-    gap: 6px;
-    padding-bottom: 20px;
-  }
-
-  .log.open { display: flex; }
-
-  .log-entry {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    animation: slideUp 0.2s ease-out;
-    word-break: break-all;
-  }
-
-  .log-entry .time { color: var(--text-dim); margin-right: 6px; }
-  .log-entry .action.add { color: var(--accent); }
-  .log-entry .action.redeem { color: var(--gold); }
-  .log-entry .action.fail { color: var(--danger); }
+  .tip b { display: block; color: var(--text); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .tip.show { display: block; }
+  .foot { display: flex; justify-content: space-between; align-items: center; padding: 6px 16px 14px; font-size: 12px; color: var(--text-3); }
+  .foot button { background: none; border: none; color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; }
+  table.data { display: none; width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.data.show { display: table; }
+  table.data th, table.data td { padding: 8px 16px; text-align: right; border-top: 1px solid var(--sep); font-variant-numeric: tabular-nums; }
+  table.data th { color: var(--text-3); font-weight: 500; font-size: 11px; }
+  table.data th:first-child, table.data td:first-child { text-align: left; color: var(--text-2); }
 </style>
 </head>
 <body>
 
 <div class="app">
   <header>
-    <div class="logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#0a0a0f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-        <circle cx="9" cy="7" r="4"/>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>
+    <div class="brand">
+      <h1>Loyalty</h1>
+      <p>La Bottega Milanese</p>
     </div>
-    <div>
-      <h1>Loyalty Scanner</h1>
-      <p>Scan &bull; Add Drinks &bull; Redeem</p>
+    <div class="counter dim" id="counter" title="Customer scans">
+      <div class="cell"><div class="label">Today</div><div class="num" id="countToday">&ndash;</div></div>
+      <div class="cell"><div class="label">All time</div><div class="num small" id="countTotal">&ndash;</div></div>
     </div>
   </header>
 
   <!-- Camera -->
-  <div class="scanner-container" id="scannerContainer">
+  <div class="scanner" id="scannerContainer">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
-    <div class="scanner-overlay" id="overlay" style="display:none;">
-      <div class="scan-frame"></div>
-    </div>
-    <button class="btn-stop" id="stopBtn" style="display:none;" onclick="stopScanner()">&#10005; Stop</button>
-    <div class="scanner-placeholder" id="placeholder">
-      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="3" y="3" width="7" height="7" rx="1"/>
-        <rect x="14" y="3" width="7" height="7" rx="1"/>
-        <rect x="3" y="14" width="7" height="7" rx="1"/>
-        <rect x="14" y="14" width="3" height="3"/>
-        <line x1="21" y1="14" x2="21" y2="21"/>
-        <line x1="14" y1="21" x2="21" y2="21"/>
+    <div class="viewfinder" id="overlay" style="display:none;"><div class="frame"><i></i><i></i><i></i><i></i></div></div>
+    <button class="stop" id="stopBtn" style="display:none;" onclick="stopScanner()">Stop</button>
+    <div class="placeholder" id="placeholder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
+        <path d="M14 14h3v3M21 14v1M14 20v1M17 21h4v-4"/>
       </svg>
       <span>Scan a customer's QR code</span>
-      <button class="btn-scan-start" onclick="startScanner()">Start Scanner</button>
+      <button class="btn primary auto" onclick="startScanner()">Start scanning</button>
     </div>
   </div>
 
-  <!-- Result panel -->
-  <div class="result-panel" id="resultPanel">
-    <div class="customer-info">
-      <div class="customer-avatar" id="custAvatar" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
+  <!-- Customer sheet -->
+  <div class="sheet" id="resultPanel">
+    <div class="card">
+      <div class="row customer">
+        <div class="avatar" id="custAvatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <div class="who">
+          <div class="name" id="custName">Loading customer&hellip;</div>
+          <div class="meta" id="custMeta"></div>
+          <div class="id" id="custData">&mdash;</div>
+        </div>
       </div>
-      <div class="customer-detail">
-        <div class="name" id="custName">Loading customer...</div>
-        <div class="meta" id="custMeta"></div>
-        <div class="id" id="custData">&mdash;</div>
+      <div class="row tiles" style="padding:0" aria-live="polite">
+        <div class="tile"><div class="label">Last visit</div><div class="value dim" id="lastVisitValue">&mdash;</div><div class="sub" id="lastVisitSub"></div></div>
+        <div class="tile"><div class="label">Free drinks</div><div class="value dim" id="drinksValue">&mdash;</div><div class="sub" id="drinksSub"></div></div>
       </div>
-    </div>
-
-    <div class="visit-grid" aria-live="polite">
-      <div class="visit-tile">
-        <div class="label">Last visit</div>
-        <div class="value dim" id="lastVisitValue">&mdash;</div>
-        <div class="sub" id="lastVisitSub"></div>
+      <div class="row points" aria-live="polite">
+        <div><div class="label">Points</div><div class="hero" id="pointsValue">&mdash;</div></div>
+        <div class="copy" id="pointsCopy">Scan a customer to load their balance.</div>
       </div>
-      <div class="visit-tile">
-        <div class="label">Free drinks</div>
-        <div class="value dim" id="drinksValue">&mdash;</div>
-        <div class="sub" id="drinksSub"></div>
+      <div class="row stepper">
+        <div class="label">Drinks to add</div>
+        <button type="button" id="btnMinus" onclick="adjustPoints(-1)" aria-label="Fewer">&minus;</button>
+        <input type="number" id="pointsInput" value="" min="1" max="99" placeholder="0" inputmode="numeric" oninput="onPointsInput()">
+        <button type="button" id="btnPlus" onclick="adjustPoints(1)" aria-label="More">+</button>
       </div>
-    </div>
-
-    <div class="points-summary" aria-live="polite">
-      <div class="section-label">Current Points</div>
-      <div class="points-summary-top">
-        <div class="points-value" id="pointsValue">&mdash;</div>
-      </div>
-      <div class="points-copy" id="pointsCopy">Scan a customer QR code to load their balance.</div>
-    </div>
-
-    <div class="section-label">How many drinks / points to add?</div>
-    <div class="points-stepper">
-      <button class="stepper-btn" id="btnMinus" onclick="adjustPoints(-1)">&minus;</button>
-      <input type="number" class="stepper-input" id="pointsInput" value="" min="1" max="99" placeholder="0" oninput="onPointsInput()">
-      <button class="stepper-btn" id="btnPlus" onclick="adjustPoints(1)">+</button>
     </div>
 
     <div class="actions">
-      <button class="btn-add" id="btnAdd" disabled onclick="sendAddPoints()">Add Points</button>
-      <button class="btn-redeem" id="btnRedeem" hidden onclick="sendRedeem()">&#11088; Redeem Free Drink (uses 9 pts)</button>
-      <button class="btn-new-scan" onclick="resetAndScan()">Scan Another Customer</button>
+      <button class="btn primary" id="btnAdd" disabled onclick="sendAddPoints()">Add points</button>
+      <button class="btn gold" id="btnRedeem" onclick="sendRedeem()">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.6 9.4l6.5-.9z"/></svg>
+        <span id="btnRedeemText">Redeem free drink</span>
+      </button>
+      <button class="btn quiet" onclick="resetAndScan()">Scan another customer</button>
     </div>
   </div>
 
-  <!-- Status -->
-  <div class="status-bar">
-    <div class="status-dot" id="statusDot"></div>
-    <span id="statusText">Ready &mdash; tap Start Scanner</span>
-  </div>
+  <div class="status"><div class="dot" id="statusDot"></div><span id="statusText">Ready</span></div>
 
-  <button class="log-toggle" onclick="toggleLog()">&#9662; Activity Log</button>
-  <div class="log" id="log"></div>
+  <button class="disclosure" id="logToggle" onclick="toggleLog()">
+    Activity
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+  <div class="log card" id="log"></div>
+
+  <!-- Stats: below the fold on purpose -->
+  <section class="stats card" id="stats">
+    <div class="head"><h2>Scans</h2><div class="sum" id="statsSummary">&nbsp;</div></div>
+    <div class="seg" id="seg" role="tablist">
+      <button data-range="today">Today</button>
+      <button data-range="week" class="on">Week</button>
+      <button data-range="month">Month</button>
+      <button data-range="year">Year</button>
+      <button data-range="custom">Custom</button>
+    </div>
+    <div class="range" id="rangeRow">
+      <input type="date" id="fromDate" aria-label="From">
+      <input type="date" id="toDate" aria-label="To">
+      <button class="btn quiet auto" style="min-height:40px;padding:0 14px;font-size:14px" onclick="applyCustom()">Go</button>
+    </div>
+    <div class="chart-wrap" id="chartWrap">
+      <svg id="chart" viewBox="0 0 448 220" preserveAspectRatio="none" aria-label="Scans over time"></svg>
+      <div class="empty" id="chartEmpty" style="display:none">No scans in this period</div>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="foot"><span id="statsNote"></span><button type="button" onclick="toggleTable()">View as table</button></div>
+    <table class="data" id="statsTable"><thead><tr><th>Period</th><th>Scans</th><th>Stamps</th><th>Redeems</th></tr></thead><tbody></tbody></table>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-  const WEBHOOK_URL = '/api/loyalty'; // was the Make.com webhook; see README
+  const WEBHOOK_URL = '/api/loyalty';
+  const STATS_URL = '/api/stats';
 
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
@@ -585,6 +368,7 @@
   const drinksSub = document.getElementById('drinksSub');
   const btnAdd = document.getElementById('btnAdd');
   const btnRedeem = document.getElementById('btnRedeem');
+  const btnRedeemText = document.getElementById('btnRedeemText');
   const pointsValue = document.getElementById('pointsValue');
   const pointsCopy = document.getElementById('pointsCopy');
   const logEl = document.getElementById('log');
@@ -601,29 +385,31 @@
 
   function setStatus(text, state) {
     statusText.textContent = text;
-    statusDot.className = 'status-dot' + (state ? ' ' + state : '');
+    statusDot.className = 'dot' + (state ? ' ' + state : '');
   }
 
   function showToast(msg, type, duration) {
     duration = duration || 2500;
     toastEl.textContent = msg;
-    toastEl.className = 'toast ' + type + ' show';
+    toastEl.className = 'toast ' + (type || '') + ' show';
     clearTimeout(toastEl._t);
-    toastEl._t = setTimeout(function() { toastEl.classList.remove('show'); }, duration);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove('show'); }, duration);
   }
 
   function addLog(action, type, detail) {
     var entry = document.createElement('div');
     entry.className = 'log-entry';
-    var now = new Date().toLocaleTimeString();
-    entry.innerHTML = '<span class="time">' + now + '</span> <span class="action ' + type + '">' + esc(action) + '</span>';
-    if (detail) entry.innerHTML += ' <span style="color:var(--text-dim)">' + esc(detail) + '</span>';
+    var t = document.createElement('span'); t.className = 'time'; t.textContent = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    var a = document.createElement('span'); a.className = type; a.textContent = action;
+    entry.appendChild(t); entry.appendChild(a);
+    if (detail) { var d = document.createElement('span'); d.style.color = 'var(--text-3)'; d.textContent = ' ' + detail; entry.appendChild(d); }
     logEl.prepend(entry);
   }
 
-  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function toggleLog() { logEl.classList.toggle('open'); }
+  function toggleLog() {
+    logEl.classList.toggle('open');
+    document.getElementById('logToggle').classList.toggle('open', logEl.classList.contains('open'));
+  }
 
   function parsePointValue(value) {
     var parsed = parseInt(value, 10);
@@ -637,54 +423,32 @@
       var trimmed = data.trim();
       if (!trimmed) return null;
       if (/^-?\d+$/.test(trimmed)) return parsePointValue(trimmed);
-      try {
-        return extractPoints(JSON.parse(trimmed));
-      } catch (err) {
-        return null;
-      }
+      try { return extractPoints(JSON.parse(trimmed)); } catch (err) { return null; }
     }
     if (typeof data !== 'object') return null;
-
-    // PassKit "Search Member" returns an array of member records — dig into each.
     if (Array.isArray(data)) {
-      for (var j = 0; j < data.length; j++) {
-        var arrPoints = extractPoints(data[j]);
-        if (arrPoints !== null) return arrPoints;
-      }
+      for (var j = 0; j < data.length; j++) { var arrPoints = extractPoints(data[j]); if (arrPoints !== null) return arrPoints; }
       return null;
     }
-
     var keys = ['points', 'current_points', 'loyalty_points', 'balance', 'point_balance', 'points_balance'];
     for (var i = 0; i < keys.length; i++) {
-      if (data[keys[i]] !== undefined && data[keys[i]] !== null) {
-        var value = parsePointValue(data[keys[i]]);
-        if (value !== null) return value;
-      }
+      if (data[keys[i]] !== undefined && data[keys[i]] !== null) { var value = parsePointValue(data[keys[i]]); if (value !== null) return value; }
     }
-
     return null;
   }
 
   function setPointsDisplay(points, message) {
     currentPoints = points;
-    pointsValue.textContent = points === null ? '\u2014' : String(points);
-    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.'));
+    pointsValue.textContent = points === null ? '—' : String(points);
+    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= 9 ? 'A free drink is available.' : (9 - points) + ' more to a free drink.'));
     btnRedeem.hidden = !(typeof points === 'number' && points >= 9);
-    if (!btnRedeem.hidden) {
-      btnRedeem.style.pointerEvents = '';
-      btnRedeem.style.opacity = '';
-      btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
-    }
+    if (!btnRedeem.hidden) { btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink'; }
   }
 
   async function readResponsePayload(resp) {
     var text = await resp.text();
     if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      return text;
-    }
+    try { return JSON.parse(text); } catch (err) { return text; }
   }
 
   async function lookupCustomer(qrData) {
@@ -692,26 +456,18 @@
       var resp = await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'lookup_customer',
-          qr_data: qrData,
-          timestamp: new Date().toISOString()
-        })
+        body: JSON.stringify({ action: 'lookup_customer', qr_data: qrData, timestamp: new Date().toISOString() })
       });
       var payload = await readResponsePayload(resp);
       if (!resp.ok) return { error: (payload && payload.message) || ('HTTP ' + resp.status) };
-      return {
-        points: extractPoints(payload),
-        member: (payload && payload.member) || null,
-        history: (payload && payload.history) || null
-      };
+      return { points: extractPoints(payload), member: (payload && payload.member) || null, history: (payload && payload.history) || null };
     } catch (err) {
       return { error: 'Network error' };
     }
   }
 
   async function refreshCustomerPoints(qrData) {
-    setPointsDisplay(null, 'Loading customer points...');
+    setPointsDisplay(null, 'Loading…');
     var result = await lookupCustomer(qrData);
     if (result.error || result.points === null) {
       setPointsDisplay(null, result.error || 'Unable to load points for this QR code.');
@@ -719,24 +475,21 @@
       renderHistory(null);
       return;
     }
-
     currentMember = result.member;
     currentHistory = result.history;
     renderCustomer(result.member, result.history);
     renderHistory(result.history);
-    setPointsDisplay(result.points, result.points >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
+    setPointsDisplay(result.points);
+    Counter.bump();
   }
 
-  // ---- Customer card + visit history ----
-
+  // ---- Customer card + history ----
   function initialsFor(name) {
     var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '';
     return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
   }
-
   function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
-
   function relativeDay(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return '';
@@ -749,86 +502,46 @@
     var years = Math.round(days / 365);
     return years + (years === 1 ? ' year ago' : ' years ago');
   }
-
   function fmtDateTime(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return '';
     return d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   }
-
   function retentionLabel(days) {
     if (days >= 360) { var y = Math.round(days / 365); return y + (y === 1 ? ' year' : ' years'); }
     if (days >= 55) { var mo = Math.round(days / 30); return mo + ' months'; }
     return days + ' days';
   }
-
   function fmtMonthYear(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return '';
     return d.toLocaleString('en-GB', { month: 'short', year: 'numeric' });
   }
-
-  function pill(text, kind) {
-    var el = document.createElement('span');
-    el.className = 'pill ' + kind;
-    el.textContent = text;
-    return el;
-  }
+  function pill(text, kind) { var el = document.createElement('span'); el.className = 'pill ' + kind; el.textContent = text; return el; }
 
   function renderCustomer(member, history) {
     member = member || {};
     custName.textContent = member.name || 'Loyalty member';
-    custData.textContent = member.id || currentQR || '\u2014';
-
+    custData.textContent = member.id || currentQR || '—';
     custAvatar.innerHTML = '';
-    if (member.photo) {
-      var img = document.createElement('img');
-      img.src = member.photo;
-      img.alt = '';
-      custAvatar.appendChild(img);
-    } else {
-      var ini = document.createElement('span');
-      ini.className = 'initials';
-      ini.textContent = initialsFor(member.name) || '?';
-      custAvatar.appendChild(ini);
-    }
-
+    if (member.photo) { var img = document.createElement('img'); img.src = member.photo; img.alt = ''; custAvatar.appendChild(img); }
+    else { var ini = document.createElement('span'); ini.textContent = initialsFor(member.name) || '?'; custAvatar.appendChild(ini); }
     custMeta.innerHTML = '';
     if (history && history.firstVisit) custMeta.appendChild(pill('First visit', 'gold'));
-    if (member.joined) {
-      var since = document.createElement('span');
-      since.textContent = 'Member since ' + fmtMonthYear(member.joined);
-      custMeta.appendChild(since);
-    }
+    if (member.joined) { var since = document.createElement('span'); since.textContent = 'Member since ' + fmtMonthYear(member.joined); custMeta.appendChild(since); }
   }
 
   function renderHistory(history) {
-    lastVisitValue.className = 'value';
-    drinksValue.className = 'value';
-    lastVisitSub.textContent = '';
-    drinksSub.textContent = '';
-
+    lastVisitValue.className = 'value'; drinksValue.className = 'value';
+    lastVisitSub.textContent = ''; drinksSub.textContent = '';
     if (!history || !history.recorded) {
-      lastVisitValue.className = 'value dim';
-      lastVisitValue.textContent = history ? 'Unavailable' : '\u2014';
-      drinksValue.className = 'value dim';
-      drinksValue.textContent = '\u2014';
+      lastVisitValue.className = 'value dim'; lastVisitValue.textContent = history ? 'Unavailable' : '—';
+      drinksValue.className = 'value dim'; drinksValue.textContent = '—';
       return;
     }
-
-    if (history.firstVisit) {
-      lastVisitValue.className = 'value gold';
-      lastVisitValue.textContent = 'First visit!';
-      lastVisitSub.textContent = 'Welcome them';
-    } else if (!history.lastVisit) {
-      lastVisitValue.className = 'value dim';
-      lastVisitValue.textContent = 'No record';
-      lastVisitSub.textContent = 'Before the log started';
-    } else {
-      lastVisitValue.textContent = relativeDay(history.lastVisit);
-      lastVisitSub.textContent = fmtDateTime(history.lastVisit);
-    }
-
+    if (history.firstVisit) { lastVisitValue.className = 'value gold'; lastVisitValue.textContent = 'First visit'; lastVisitSub.textContent = 'Welcome them'; }
+    else if (!history.lastVisit) { lastVisitValue.className = 'value dim'; lastVisitValue.textContent = 'No record'; lastVisitSub.textContent = 'Before the log started'; }
+    else { lastVisitValue.textContent = relativeDay(history.lastVisit); lastVisitSub.textContent = fmtDateTime(history.lastVisit); }
     var drinks = history.redemptions || 0;
     drinksValue.textContent = String(drinks);
     if (!drinks) drinksValue.className = 'value dim';
@@ -839,15 +552,13 @@
   }
 
   function resetCustomerCard(qrData) {
-    currentMember = null;
-    currentHistory = null;
-    custName.textContent = qrData ? 'Loading customer...' : '\u2014';
+    currentMember = null; currentHistory = null;
+    custName.textContent = qrData ? 'Loading customer…' : '—';
     custMeta.innerHTML = '';
-    custData.textContent = qrData || '\u2014';
+    custData.textContent = qrData || '—';
     custAvatar.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
     renderHistory(null);
   }
-
   function noteVisitNow() {
     if (!currentHistory || !currentHistory.recorded) return;
     currentHistory.visits = (currentHistory.visits || 0) + 1;
@@ -857,7 +568,6 @@
     renderCustomer(currentMember, currentHistory);
     renderHistory(currentHistory);
   }
-
   function noteRedeemNow() {
     if (!currentHistory || !currentHistory.recorded) return;
     currentHistory.redemptions = (currentHistory.redemptions || 0) + 1;
@@ -865,217 +575,360 @@
     renderHistory(currentHistory);
   }
 
+  // ---- Camera ----
   async function startScanner() {
     try {
-      setStatus('Requesting camera...', '');
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
+      setStatus('Requesting camera…', '');
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
       video.srcObject = stream;
       await video.play();
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       scanning = true;
-      placeholder.style.display = 'none';
-      overlay.style.display = 'grid';
-      stopBtn.style.display = 'block';
+      placeholder.style.display = 'none'; overlay.style.display = 'grid'; stopBtn.style.display = 'block';
       resultPanel.classList.remove('active');
-      setStatus('Scanning - point at a QR code', 'active');
+      setStatus('Point the camera at a QR code', 'active');
       tick();
     } catch (err) {
       var msg = 'Camera error';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera blocked — tap the lock icon in your address bar, set Camera to Allow, then reload';
-      } else if (err.name === 'NotFoundError') {
-        msg = 'No camera found on this device';
-      } else if (err.name === 'NotReadableError') {
-        msg = 'Camera is in use by another app — close it and try again';
-      } else if (!navigator.mediaDevices || location.protocol !== 'https:') {
-        msg = 'Camera requires HTTPS — make sure the URL starts with https://';
-      } else {
-        msg = 'Camera error: ' + (err.message || err.name);
-      }
-      setStatus(msg, 'error');
-      showToast(msg, 'error', 5000);
-      console.error('Camera error:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') msg = 'Camera blocked. Allow the camera for this site, then reload.';
+      else if (err.name === 'NotFoundError') msg = 'No camera found on this device.';
+      else if (err.name === 'NotReadableError') msg = 'The camera is in use by another app.';
+      else if (!navigator.mediaDevices || location.protocol !== 'https:') msg = 'The camera needs an https:// address.';
+      else msg = 'Camera error: ' + (err.message || err.name);
+      setStatus(msg, 'error'); showToast(msg, 'error', 5000); console.error('Camera error:', err);
     }
   }
-
   function stopScanner() {
     scanning = false;
     if (animFrame) cancelAnimationFrame(animFrame);
-    if (stream) stream.getTracks().forEach(function(t) { t.stop(); });
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     video.srcObject = null;
-    overlay.style.display = 'none';
-    stopBtn.style.display = 'none';
-    placeholder.style.display = 'flex';
+    overlay.style.display = 'none'; stopBtn.style.display = 'none'; placeholder.style.display = 'flex';
     setStatus('Ready', '');
   }
-
   function tick() {
     if (!scanning) return;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-      if (code && code.data) {
-        if (navigator.vibrate) navigator.vibrate(120);
-        handleScan(code.data);
-        return;
-      }
+      if (code && code.data) { if (navigator.vibrate) navigator.vibrate(120); handleScan(code.data); return; }
     }
     animFrame = requestAnimationFrame(tick);
   }
-
   async function handleScan(data) {
     stopScanner();
-    currentQR = data;
-    selectedPoints = 0;
-
+    currentQR = data; selectedPoints = 0;
     resetCustomerCard(data);
-    setPointsDisplay(null, 'Loading customer points...');
-
+    setPointsDisplay(null, 'Loading…');
     document.getElementById('pointsInput').value = '';
-    btnAdd.disabled = true;
-    btnAdd.textContent = 'Add Points';
+    btnAdd.disabled = true; btnAdd.textContent = 'Add points';
     btnRedeem.hidden = true;
-
     resultPanel.classList.add('active');
-    setStatus('QR scanned - choose action', 'success');
-    showToast('QR code scanned!', 'success', 1500);
-
+    setStatus('Scanned', 'success');
+    showToast('Scanned', 'success', 1200);
     await refreshCustomerPoints(data);
   }
 
+  // ---- Points ----
   function adjustPoints(delta) {
     var input = document.getElementById('pointsInput');
     var current = parseInt(input.value) || 0;
-    var next = Math.max(1, Math.min(99, current + delta));
-    input.value = next;
+    input.value = Math.max(1, Math.min(99, current + delta));
     onPointsInput();
   }
-
   function onPointsInput() {
-    var input = document.getElementById('pointsInput');
-    var val = parseInt(input.value);
-    if (val > 0) {
-      selectedPoints = val;
-      btnAdd.disabled = false;
-      btnAdd.textContent = 'Add ' + val + ' Point' + (val > 1 ? 's' : '');
-    } else {
-      selectedPoints = 0;
-      btnAdd.disabled = true;
-      btnAdd.textContent = 'Add Points';
-    }
+    var val = parseInt(document.getElementById('pointsInput').value);
+    if (val > 0) { selectedPoints = val; btnAdd.disabled = false; btnAdd.textContent = 'Add ' + val + ' point' + (val > 1 ? 's' : ''); }
+    else { selectedPoints = 0; btnAdd.disabled = true; btnAdd.textContent = 'Add points'; }
   }
-
   async function sendAddPoints() {
     if (!selectedPoints || !currentQR) return;
-    btnAdd.disabled = true;
-    btnAdd.textContent = 'Sending...';
-    setStatus('Sending to webhook...', 'active');
-
-    var payload = {
-      action: 'add_points',
-      qr_data: currentQR,
-      points: selectedPoints,
-      timestamp: new Date().toISOString()
-    };
-
+    btnAdd.disabled = true; btnAdd.textContent = 'Sending…';
+    setStatus('Adding points…', 'active');
+    var payload = { action: 'add_points', qr_data: currentQR, points: selectedPoints, timestamp: new Date().toISOString() };
     try {
-      var resp = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
+      var resp = await fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (resp.ok) {
-        showToast('+' + selectedPoints + ' point' + (selectedPoints > 1 ? 's' : '') + ' added!', 'success');
+        showToast('+' + selectedPoints + ' point' + (selectedPoints > 1 ? 's' : '') + ' added', 'success');
         addLog('+' + selectedPoints + ' pts', 'add', currentQR);
-        setStatus('Points sent!', 'success');
-        btnAdd.textContent = '\u2713 Sent!';
+        setStatus('Points added', 'success');
+        btnAdd.textContent = 'Added';
         noteVisitNow();
-        var responsePayload = await readResponsePayload(resp);
-        var updatedPoints = extractPoints(responsePayload);
-        if (updatedPoints !== null) {
-          setPointsDisplay(updatedPoints, updatedPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
-        } else if (typeof currentPoints === 'number') {
-          setPointsDisplay(currentPoints + selectedPoints, currentPoints + selectedPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
-        }
+        var updatedPoints = extractPoints(await readResponsePayload(resp));
+        if (updatedPoints !== null) setPointsDisplay(updatedPoints);
+        else if (typeof currentPoints === 'number') setPointsDisplay(currentPoints + selectedPoints);
       } else {
-        showToast('Webhook error - try again', 'error');
+        showToast('Could not add points. Try again.', 'error');
         addLog('Failed +' + selectedPoints, 'fail', 'HTTP ' + resp.status);
-        setStatus('Webhook error', 'error');
-        btnAdd.disabled = false;
-        btnAdd.textContent = 'Retry - Add ' + selectedPoints + ' Point' + (selectedPoints > 1 ? 's' : '');
+        setStatus('Could not add points', 'error');
+        btnAdd.disabled = false; btnAdd.textContent = 'Retry: add ' + selectedPoints;
       }
     } catch (err) {
-      showToast('Network error - try again', 'error');
+      showToast('Network error. Try again.', 'error');
       addLog('Network error', 'fail', err.message);
       setStatus('Network error', 'error');
-      btnAdd.disabled = false;
-      btnAdd.textContent = 'Retry - Add ' + selectedPoints + ' Point' + (selectedPoints > 1 ? 's' : '');
+      btnAdd.disabled = false; btnAdd.textContent = 'Retry: add ' + selectedPoints;
     }
   }
-
   async function sendRedeem() {
-    if (typeof currentPoints !== 'number' || currentPoints < 9) {
-      showToast('This customer needs 9 points before redeeming.', 'error');
-      return;
-    }
-
-    btnRedeem.textContent = 'Sending...';
-    setStatus('Sending redemption...', 'active');
-
-    var payload = {
-      action: 'redeem_points',
-      qr_data: currentQR,
-      points_to_remove: 9,
-      timestamp: new Date().toISOString()
-    };
-
+    if (typeof currentPoints !== 'number' || currentPoints < 9) { showToast('Needs 9 points to redeem.', 'error'); return; }
+    btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
+    setStatus('Redeeming…', 'active');
+    var payload = { action: 'redeem_points', qr_data: currentQR, points_to_remove: 9, timestamp: new Date().toISOString() };
     try {
-      var resp = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
+      var resp = await fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (resp.ok) {
-        showToast('\u2B50 Free drink redeemed!', 'gold', 3000);
-        addLog('Redeemed -9 pts', 'redeem', currentQR);
-        setStatus('Redemption sent!', 'success');
-        var redeemPayload = await readResponsePayload(resp);
-        var remainingPoints = extractPoints(redeemPayload);
-        if (remainingPoints === null) {
-          remainingPoints = currentPoints - 9;
-        }
-        setPointsDisplay(remainingPoints, remainingPoints >= 9 ? 'Redeem is available.' : 'Need 9 points to redeem.');
-        btnRedeem.textContent = '\u2713 Redeemed!';
+        showToast('Free drink redeemed', 'gold', 3000);
+        addLog('Redeemed −9 pts', 'redeem', currentQR);
+        setStatus('Redeemed', 'success');
+        var remainingPoints = extractPoints(await readResponsePayload(resp));
+        if (remainingPoints === null) remainingPoints = currentPoints - 9;
+        setPointsDisplay(remainingPoints);
+        btnRedeemText.textContent = 'Redeemed';
         noteRedeemNow();
       } else {
-        showToast('Webhook error - try again', 'error');
+        showToast('Could not redeem. Try again.', 'error');
         addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
-        setStatus('Webhook error', 'error');
-        btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
+        setStatus('Could not redeem', 'error');
+        btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
       }
     } catch (err) {
-      showToast('Network error - try again', 'error');
+      showToast('Network error. Try again.', 'error');
       addLog('Redeem error', 'fail', err.message);
       setStatus('Network error', 'error');
-      btnRedeem.textContent = '\u2B50 Redeem Free Drink (uses 9 pts)';
+      btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
     }
   }
-
   function resetAndScan() {
-    currentQR = '';
-    selectedPoints = 0;
+    currentQR = ''; selectedPoints = 0;
     resetCustomerCard('');
-    setPointsDisplay(null, 'Scan a customer QR code to load their balance.');
+    setPointsDisplay(null, 'Scan a customer to load their balance.');
     resultPanel.classList.remove('active');
     startScanner();
   }
+
+  // ---- Scan counter (top right) + chart, from our own ledger ----
+  var fmtNum = function (n) { return Number(n).toLocaleString('en-GB'); };
+
+  var Counter = {
+    today: null, total: null,
+    el: document.getElementById('counter'),
+    render: function () {
+      document.getElementById('countToday').textContent = Counter.today === null ? '–' : fmtNum(Counter.today);
+      document.getElementById('countTotal').textContent = Counter.total === null ? '–' : fmtNum(Counter.total);
+      Counter.el.classList.toggle('dim', Counter.today === null);
+    },
+    load: async function () {
+      try {
+        var resp = await fetch(STATS_URL + '?range=today', { cache: 'no-store' });
+        if (!resp.ok) return;
+        var data = await resp.json();
+        Counter.today = data.today; Counter.total = data.total;
+        Counter.render();
+      } catch (err) { /* keep whatever we had */ }
+    },
+    bump: function () {
+      if (Counter.today === null) return;
+      Counter.today += 1; Counter.total += 1; Counter.render();
+    },
+    start: function () {
+      Counter.load();
+      setInterval(Counter.load, 10 * 60 * 1000);
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) Counter.load(); });
+    }
+  };
+
+  var Chart = {
+    range: 'week', loaded: false, data: null, seq: 0,
+    svg: document.getElementById('chart'),
+    wrap: document.getElementById('chartWrap'),
+    tip: document.getElementById('tip'),
+    W: 448, H: 220, padL: 34, padR: 14, padT: 14, padB: 26,
+
+    load: async function (range, from, to) {
+      var seq = ++Chart.seq;
+      Chart.wrap.classList.add('loading');
+      var q = STATS_URL + '?range=' + range + (from ? '&from=' + from + '&to=' + to : '');
+      try {
+        var resp = await fetch(q, { cache: 'no-store' });
+        var data = await resp.json();
+        if (seq !== Chart.seq) return;
+        if (!resp.ok) { Chart.note(data.message || 'Stats unavailable'); return; }
+        Chart.data = data; Chart.loaded = true;
+        if (data.today !== undefined) { Counter.today = data.today; Counter.total = data.total; Counter.render(); }
+        Chart.draw(data); Chart.table(data);
+      } catch (err) {
+        if (seq === Chart.seq) Chart.note('Stats unavailable');
+      } finally {
+        if (seq === Chart.seq) Chart.wrap.classList.remove('loading');
+      }
+    },
+    note: function (text) { document.getElementById('statsNote').textContent = text; },
+
+    smoothPath: function (pts) {
+      // Monotone cubic (Fritsch-Carlson): a soft curve that never overshoots the data.
+      var n = pts.length;
+      if (n < 2) return '';
+      var d = [], m = [];
+      for (var i = 0; i < n - 1; i++) d.push((pts[i + 1].y - pts[i].y) / (pts[i + 1].x - pts[i].x || 1));
+      m[0] = d[0]; m[n - 1] = d[n - 2];
+      for (i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+      for (i = 0; i < n - 1; i++) {
+        if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+        var a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+        if (s > 9) { var t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+      }
+      var path = 'M' + pts[0].x.toFixed(1) + ',' + pts[0].y.toFixed(1);
+      for (i = 0; i < n - 1; i++) {
+        var dx = (pts[i + 1].x - pts[i].x) / 3;
+        path += ' C' + (pts[i].x + dx).toFixed(1) + ',' + (pts[i].y + m[i] * dx).toFixed(1) + ' ' + (pts[i + 1].x - dx).toFixed(1) + ',' + (pts[i + 1].y - m[i + 1] * dx).toFixed(1) + ' ' + pts[i + 1].x.toFixed(1) + ',' + pts[i + 1].y.toFixed(1);
+      }
+      return path;
+    },
+
+    niceMax: function (v) {
+      if (v <= 5) return 5;
+      var p = Math.pow(10, Math.floor(Math.log10(v)));
+      var f = v / p;
+      var nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+      return nf * p;
+    },
+
+    draw: function (data) {
+      var series = data.series || [];
+      var svg = Chart.svg, W = Chart.W, H = Chart.H, L = Chart.padL, R = Chart.padR, T = Chart.padT, B = Chart.padB;
+      var ns = 'http://www.w3.org/2000/svg';
+      var el = function (tag, attrs) { var e = document.createElementNS(ns, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; };
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      document.getElementById('chartEmpty').style.display = data.summary && data.summary.scans > 0 ? 'none' : 'grid';
+
+      var max = Chart.niceMax(Math.max.apply(null, [1].concat(series.map(function (b) { return b.scans; }))));
+      var iw = W - L - R, ih = H - T - B;
+      var n = series.length;
+      var xAt = function (i) { return n === 1 ? L + iw / 2 : L + (iw * i) / (n - 1); };
+      var yAt = function (v) { return T + ih - (ih * v) / max; };
+
+      var defs = el('defs', {});
+      var grad = el('linearGradient', { id: 'fill', x1: '0', y1: '0', x2: '0', y2: '1' });
+      grad.appendChild(el('stop', { offset: '0%', 'stop-color': '#0a84ff', 'stop-opacity': '0.38' }));
+      grad.appendChild(el('stop', { offset: '100%', 'stop-color': '#0a84ff', 'stop-opacity': '0' }));
+      defs.appendChild(grad); svg.appendChild(defs);
+
+      // gridlines + y ticks (hairline, solid, recessive)
+      [0, 0.5, 1].forEach(function (f) {
+        var y = yAt(max * f);
+        svg.appendChild(el('line', { x1: L, x2: W - R, y1: y, y2: y, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': '1' }));
+        var t = el('text', { x: L - 8, y: y + 4, 'text-anchor': 'end', fill: 'rgba(235,235,245,0.32)', 'font-size': '10', 'font-family': 'inherit' });
+        t.textContent = fmtNum(Math.round(max * f)); svg.appendChild(t);
+      });
+
+      // x labels: about five, evenly spread
+      var step = Math.max(1, Math.round(n / 5));
+      series.forEach(function (b, i) {
+        if (i % step !== 0 && i !== n - 1) return;
+        if (i !== n - 1 && n - 1 - i < step * 0.6) return;
+        var t = el('text', { x: xAt(i), y: H - 8, 'text-anchor': i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle', fill: 'rgba(235,235,245,0.32)', 'font-size': '10', 'font-family': 'inherit' });
+        t.textContent = b.label; svg.appendChild(t);
+      });
+
+      var pts = series.map(function (b, i) { return { x: xAt(i), y: yAt(b.scans) }; });
+      if (pts.length >= 2) {
+        var line = Chart.smoothPath(pts);
+        svg.appendChild(el('path', { d: line + ' L' + pts[n - 1].x.toFixed(1) + ',' + yAt(0) + ' L' + pts[0].x.toFixed(1) + ',' + yAt(0) + ' Z', fill: 'url(#fill)' }));
+        svg.appendChild(el('path', { d: line, fill: 'none', stroke: '#0a84ff', 'stroke-width': '2', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+      }
+      var last = pts[n - 1];
+      if (last) {
+        svg.appendChild(el('circle', { cx: last.x, cy: last.y, r: '6', fill: '#1c1c1e' }));
+        svg.appendChild(el('circle', { cx: last.x, cy: last.y, r: '4', fill: '#0a84ff' }));
+      }
+
+      // crosshair + tooltip
+      var cross = el('line', { x1: 0, x2: 0, y1: T, y2: T + ih, stroke: 'rgba(255,255,255,0.22)', 'stroke-width': '1', style: 'display:none' });
+      var ring = el('circle', { r: '6', fill: '#1c1c1e', style: 'display:none' });
+      var dot = el('circle', { r: '4', fill: '#0a84ff', style: 'display:none' });
+      svg.appendChild(cross); svg.appendChild(ring); svg.appendChild(dot);
+      var hit = el('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent' });
+      svg.appendChild(hit);
+
+      var show = function (clientX) {
+        var rect = svg.getBoundingClientRect();
+        var x = ((clientX - rect.left) / rect.width) * W;
+        var i = 0, best = Infinity;
+        pts.forEach(function (p, k) { var dd = Math.abs(p.x - x); if (dd < best) { best = dd; i = k; } });
+        var p = pts[i], b = series[i];
+        cross.setAttribute('x1', p.x); cross.setAttribute('x2', p.x); cross.style.display = '';
+        ring.setAttribute('cx', p.x); ring.setAttribute('cy', p.y); ring.style.display = '';
+        dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y); dot.style.display = '';
+        Chart.tip.innerHTML = '';
+        var strong = document.createElement('b'); strong.textContent = fmtNum(b.scans) + (b.scans === 1 ? ' scan' : ' scans');
+        Chart.tip.appendChild(strong);
+        Chart.tip.appendChild(document.createTextNode(b.label + ' · ' + fmtNum(b.adds) + ' stamps · ' + fmtNum(b.redeems) + ' redeems'));
+        var wrapRect = Chart.wrap.getBoundingClientRect();
+        var px = rect.left - wrapRect.left + (p.x / W) * rect.width;
+        var py = rect.top - wrapRect.top + (p.y / H) * rect.height;
+        Chart.tip.style.left = Math.max(70, Math.min(wrapRect.width - 70, px)) + 'px';
+        Chart.tip.style.top = Math.max(44, py) + 'px';
+        Chart.tip.classList.add('show');
+      };
+      var hide = function () { cross.style.display = 'none'; ring.style.display = 'none'; dot.style.display = 'none'; Chart.tip.classList.remove('show'); };
+      hit.addEventListener('pointermove', function (e) { show(e.clientX); });
+      hit.addEventListener('pointerdown', function (e) { show(e.clientX); });
+      hit.addEventListener('pointerleave', hide);
+      hit.addEventListener('pointerup', function () { setTimeout(hide, 1500); });
+
+      var s = data.summary || {};
+      var sum = fmtNum(s.scans || 0) + ' scans';
+      if (s.peak) sum += ' · peak ' + s.peak.label + ' (' + fmtNum(s.peak.scans) + ')';
+      document.getElementById('statsSummary').textContent = sum;
+      var per = data.bucket === 'hour' ? 'hour' : data.bucket === 'month' ? 'month' : 'day';
+      Chart.note(s.avgPerBucket ? 'Avg ' + fmtNum(s.avgPerBucket) + ' per ' + per + ' when open' : '');
+    },
+
+    table: function (data) {
+      var tbody = document.querySelector('#statsTable tbody');
+      tbody.innerHTML = '';
+      (data.series || []).forEach(function (b) {
+        if (!b.scans && !b.adds && !b.redeems) return;
+        var tr = document.createElement('tr');
+        [b.label, b.scans, b.adds, b.redeems].forEach(function (v) { var td = document.createElement('td'); td.textContent = typeof v === 'number' ? fmtNum(v) : v; tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+    },
+
+    select: function (range) {
+      Chart.range = range;
+      document.querySelectorAll('#seg button').forEach(function (b) { b.classList.toggle('on', b.dataset.range === range); });
+      document.getElementById('rangeRow').classList.toggle('show', range === 'custom');
+      if (range === 'custom') {
+        var to = document.getElementById('toDate'), from = document.getElementById('fromDate');
+        if (!to.value) { var d = new Date(); to.value = d.toISOString().slice(0, 10); d.setDate(d.getDate() - 13); from.value = d.toISOString().slice(0, 10); }
+        return;
+      }
+      Chart.load(range);
+    },
+    start: function () {
+      document.querySelectorAll('#seg button').forEach(function (b) { b.addEventListener('click', function () { Chart.select(b.dataset.range); }); });
+      var section = document.getElementById('stats');
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          if (entries.some(function (e) { return e.isIntersecting; }) && !Chart.loaded) { Chart.load(Chart.range); }
+        }, { rootMargin: '120px' });
+        io.observe(section);
+      } else {
+        Chart.load(Chart.range);
+      }
+    }
+  };
+  function applyCustom() {
+    var from = document.getElementById('fromDate').value, to = document.getElementById('toDate').value;
+    if (from && to) Chart.load('custom', from, to);
+  }
+  function toggleTable() { document.getElementById('statsTable').classList.toggle('show'); }
+
+  Counter.start();
+  Chart.start();
 
   // ---- Self-update -------------------------------------------------------
   // The shop device keeps this page open for days. Without this, a new
@@ -1090,23 +943,18 @@
     updateAvailable: false,
     lastActivity: Date.now(),
     reloading: false,
-
     hash: function (text) {
       var h = 0;
       for (var i = 0; i < text.length; i++) h = (Math.imul(h, 31) + text.charCodeAt(i)) | 0;
       return (h >>> 0).toString(16) + ':' + text.length;
     },
-
     fetchVersion: async function () {
       try {
         var resp = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' });
         if (!resp.ok) return null;
         return SelfUpdate.hash(await resp.text());
-      } catch (err) {
-        return null;
-      }
+      } catch (err) { return null; }
     },
-
     check: async function () {
       var v = await SelfUpdate.fetchVersion();
       if (!v) return;
@@ -1116,23 +964,19 @@
         console.info('[self-update] new version deployed; will reload when idle');
       }
     },
-
     idleFor: function () { return Date.now() - SelfUpdate.lastActivity; },
-
     canReloadNow: function () {
       if (!SelfUpdate.updateAvailable || SelfUpdate.reloading) return false;
       if (scanning) return SelfUpdate.idleFor() >= SelfUpdate.IDLE_WHILE_SCANNING_MS;
       if (resultPanel.classList.contains('active')) return SelfUpdate.idleFor() >= SelfUpdate.IDLE_MID_CUSTOMER_MS;
       return true;
     },
-
     maybeReload: function () {
       if (!SelfUpdate.canReloadNow()) return;
       SelfUpdate.reloading = true;
-      setStatus('Updating scanner...', 'active');
+      setStatus('Updating scanner…', 'active');
       setTimeout(function () { location.reload(); }, 400);
     },
-
     start: function () {
       ['click', 'touchstart', 'keydown', 'input'].forEach(function (ev) {
         document.addEventListener(ev, function () { SelfUpdate.lastActivity = Date.now(); }, { passive: true, capture: true });

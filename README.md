@@ -64,6 +64,45 @@ Every earn/burn is written to PassKit's member event log with
 you now lives in PassKit. Each request also logs one JSON line to the Vercel
 function logs.
 
+## Scan counter and chart (our own ledger)
+
+Every scanner action is written to **our own Supabase table** `scan_events`
+(see `supabase/migrations/001_scan_events.sql`): the lookup when a customer
+is scanned, each stamp, each redemption. This is independent of PassKit on
+purpose, so the numbers survive the PassKit phase-out and the table can grow
+into the balance store for non-legacy customers later.
+
+- `GET /api/stats?range=today|week|month|year|custom&from=YYYY-MM-DD&to=YYYY-MM-DD`
+  returns `today`, `total`, a zero-filled `series` (hourly for today, daily
+  for week/month/short custom ranges, monthly for year/long ranges) and a
+  `summary`. Buckets follow the shop's clock (`SHOP_TIMEZONE`, default
+  Europe/London, DST-aware). Cached 20 s (today) / 2 min in the function.
+- The page shows Today / All time top right and a line chart at the bottom
+  with Today, Week, Month, Year and Custom views, a crosshair tooltip and a
+  table view.
+- A "scan" is one customer scan (the lookup). For the one-off PassKit
+  backfill, where no lookups exist, each stamp or redemption counts as one.
+
+### Backfilling the Make.com era
+
+`POST /api/admin/backfill?offset=0&pages=3` with header `x-admin-secret`
+(env `ADMIN_SECRET`) copies PassKit's programme event log into the ledger,
+only for events **before** the ledger's first live row, keyed on the PassKit
+event id so it can be re-run safely. Call it repeatedly with the returned
+`nextOffset` until `done: true`.
+
+### Environment
+
+| name                   | notes                                                 |
+| ---------------------- | ----------------------------------------------------- |
+| `SUPABASE_URL`         | the La Bottega Supabase project URL                   |
+| `SUPABASE_SERVICE_KEY` | service role key (server only; the table has no anon policies) |
+| `ADMIN_SECRET`         | only needed to run the backfill                       |
+| `SHOP_TIMEZONE`        | optional, default `Europe/London`                     |
+
+If the ledger variables are missing the scanner still works; only the counter
+and chart show as unavailable.
+
 ## Self-update on the shop device
 
 The scanner page stays open for days, so `public/index.html` checks for a

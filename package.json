@@ -1,0 +1,9 @@
+{
+  "name": "la-bottega-loyalty-scanner",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Loyalty scanner for La Bottega Milanese: static page + Vercel API routes (PassKit balances, own scan ledger in Supabase).",
+  "scripts": {
+    "test": "node --test"
+  }
+}

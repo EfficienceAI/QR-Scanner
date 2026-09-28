@@ -1,0 +1,68 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const T = require('../lib/time');
+const { planRange, mergeSeries, summarize, buildStats } = require('../api/stats')._internals;
+
+test('London midnight handles BST, GMT and the DST switch day', () => {
+  assert.equal(T.localMidnight(2026, 9, 28, 'Europe/London').toISOString(), '2026-09-27T23:00:00.000Z'); // BST
+  assert.equal(T.localMidnight(2026, 12, 1, 'Europe/London').toISOString(), '2026-12-01T00:00:00.000Z'); // GMT
+  assert.equal(T.localMidnight(2026, 10, 25, 'Europe/London').toISOString(), '2026-10-24T23:00:00.000Z'); // clocks go back this day
+  assert.equal(T.localMidnight(2026, 10, 26, 'Europe/London').toISOString(), '2026-10-26T00:00:00.000Z');
+});
+
+test('today = 24 hourly buckets between local midnights', () => {
+  const p = planRange('today', '', '', new Date('2026-09-28T10:00:00Z'));
+  assert.equal(p.bucket, 'hour');
+  assert.equal(p.from.toISOString(), '2026-09-27T23:00:00.000Z');
+  assert.equal(p.to.toISOString(), '2026-09-28T23:00:00.000Z');
+  assert.equal(p.buckets.length, 24);
+  assert.equal(p.buckets[0].key, '2026-09-28T00');
+  assert.equal(p.buckets[9].label, '09:00');
+});
+
+test('week and month are trailing day buckets ending today', () => {
+  const w = planRange('week', '', '', new Date('2026-09-28T10:00:00Z'));
+  assert.equal(w.buckets.length, 7);
+  assert.equal(w.buckets[0].key, '2026-09-22');
+  assert.equal(w.buckets[6].key, '2026-09-28');
+  assert.equal(w.buckets[6].label, 'Mon 28');
+  const m = planRange('month', '', '', new Date('2026-09-28T10:00:00Z'));
+  assert.equal(m.buckets.length, 30);
+  assert.equal(m.buckets[0].key, '2026-08-30');
+});
+
+test('year = 12 month buckets; custom picks day or month buckets by span', () => {
+  const y = planRange('year', '', '', new Date('2026-09-28T10:00:00Z'));
+  assert.equal(y.bucket, 'month');
+  assert.deepEqual([y.buckets[0].key, y.buckets[11].key], ['2025-10', '2026-09']);
+  assert.equal(y.buckets[0].label, 'Oct 25');
+  const c = planRange('custom', '2026-09-01', '2026-09-28');
+  assert.equal(c.bucket, 'day'); assert.equal(c.buckets.length, 28);
+  const long = planRange('custom', '2026-01-01', '2026-09-28');
+  assert.equal(long.bucket, 'month'); assert.equal(long.buckets.length, 9);
+  assert.ok(planRange('custom', '2026-09-28', '2026-09-01').error);
+  assert.ok(planRange('custom', 'nope', '2026-09-01').error);
+  assert.ok(planRange('decade', '', '').error);
+});
+
+test('series rows land in the right local bucket and gaps are zero-filled', () => {
+  const p = planRange('today', '', '', new Date('2026-09-28T10:00:00Z'));
+  const rows = [{ bucket_start: '2026-09-28T08:00:00+00:00', scans: '7', adds: '6', redeems: '1', points_added: '9' }];
+  const s = mergeSeries(p, rows);
+  assert.equal(s.length, 24);
+  assert.deepEqual(s[9], { key: '2026-09-28T09', label: '09:00', scans: 7, adds: 6, redeems: 1, points: 9 });
+  assert.equal(s[8].scans, 0);
+  const sum = summarize(s);
+  assert.equal(sum.scans, 7); assert.deepEqual(sum.peak, { key: '2026-09-28T09', label: '09:00', scans: 7 }); assert.equal(sum.avgPerBucket, 7);
+});
+
+test('buildStats composes totals and series', async () => {
+  const r = await buildStats('week', '', '', {
+    now: new Date('2026-09-28T10:00:00Z'),
+    getSeries: async (bucket, from, to) => { assert.equal(bucket, 'day'); assert.equal(from, '2026-09-21T23:00:00.000Z'); return [{ bucket_start: '2026-09-27T23:00:00+00:00', scans: 25, adds: 24, redeems: 3, points_added: 30 }]; },
+    getTotals: async () => ({ today: 25, total: 4812, firstAt: '2026-06-29T10:00:00Z', liveSince: '2026-09-28T09:00:00Z' }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.today, 25); assert.equal(r.body.total, 4812);
+  assert.equal(r.body.series[6].scans, 25); assert.equal(r.body.summary.scans, 25);
+});

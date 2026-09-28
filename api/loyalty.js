@@ -13,6 +13,7 @@
  */
 
 const passkit = require('../lib/passkit');
+const ledger = require('../lib/ledger');
 
 const SOURCE_TAG = 'loyalty-scanner';
 
@@ -273,6 +274,7 @@ module.exports = async function handler(req, res) {
         lastVisit: history.lastVisit,
         retentionDays: history.retentionDays,
       });
+      await ledger.recordEvent({ action: 'lookup', memberId: member.id }, { log });
       return send(res, 200, { ok: true, action, points: member.points, member, history });
     }
 
@@ -288,6 +290,7 @@ module.exports = async function handler(req, res) {
       const result = await passkit.earnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ added: points, points: balance });
+      await ledger.recordEvent({ action: 'add', memberId: ref.id || result.id || null, points }, { log });
       return send(res, 200, { ok: true, action, added: points, points: balance });
     }
 
@@ -309,6 +312,7 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, cost, eventDetails(action, cost));
       const balance = num(result.points);
       log({ redeemed: cost, requested, points: balance });
+      await ledger.recordEvent({ action: 'redeem', memberId: before.id || ref.id || null, points: cost }, { log });
       return send(res, 200, { ok: true, action, redeemed: cost, points: balance });
     }
 
