@@ -18,32 +18,13 @@ PassKit Members API  (api.pub1.passkit.io)
 
 Until this branch, the page posted the same payloads to a Make.com webhook
 and Make talked to PassKit. The function replaces Make one-for-one. The page
-has since grown a staff passcode, the scan counter and the chart, so it is no
-longer the old page with a new URL.
+has since grown the scan counter and the chart, so it is no longer the old
+page with a new URL.
 
 The QR decoder is vendored at `public/vendor/jsQR-1.4.0.min.js` rather than
 loaded from a CDN: a page that moves customer balances should not execute a
 script a third party can change, and jsDelivr minifies on demand, which rules
 out an integrity hash.
-
-### Staff passcode
-
-`/api/loyalty` and `/api/stats` both require the shop passcode in an
-`X-Staff-Passcode` header, and **fail closed**: with `STAFF_PASSCODE` unset
-every request is refused with 503 `not_configured`. Set it before deploying,
-or the scanner will not work at all.
-
-This is not optional politeness. The deployment URL is public, member ids are
-printed on the staff screen, and `remove_points` exists, so without a gate
-anyone who saw a member id could empty that balance from a laptop.
-
-Staff enter the passcode once per device; the page keeps it in `localStorage`
-and re-asks only if the server rejects it. Use something long: ten wrong
-attempts in five minutes are throttled per instance, which slows a guessing
-run but is no substitute for a passcode that cannot be guessed. To change it,
-update the environment variable and redeploy; each device will ask once more.
-Vercel Deployment Protection in front of the whole project is complementary,
-not a replacement, since it does not cover a device that is already logged in.
 
 ### API contract
 
@@ -231,7 +212,6 @@ on this branch, set them for the **Preview** environment only.
 | `PASSKIT_PROGRAM_ID`          | no       | only with `PASSKIT_ID_MODE=externalId`                       |
 | `LOYALTY_REDEEM_COST`         | no       | default 9                                                    |
 | `LOYALTY_MAX_POINTS_PER_SCAN` | no       | default 99                                                   |
-| `STAFF_PASSCODE`              | yes      | shop passcode for the API. Unset means every request is refused |
 | `SUPABASE_URL`                | yes      | scan counter, chart and backfill                             |
 | `SUPABASE_SERVICE_KEY`        | yes      | service role key, server-side only                           |
 | `ADMIN_SECRET`                | no       | only to run the backfill                                     |
@@ -252,15 +232,14 @@ Preview deployments. Production is not affected either way.
 1. Push the branch. Vercel builds a **Preview** deployment with its own URL
    (`https://qr-scanner-git-<branch>-efficeicnais-projects.vercel.app`).
    Production keeps running the Make.com flow.
-2. Add `PASSKIT_API_KEY`, `PASSKIT_API_SECRET` and `STAFF_PASSCODE` to the
-   Preview environment (plus `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` if you
-   want the counter and chart), then redeploy the preview (or push an empty
-   commit). Without `STAFF_PASSCODE` every request returns 503.
+2. Add `PASSKIT_API_KEY` and `PASSKIT_API_SECRET` to the Preview environment
+   (plus `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` if you want the counter and
+   chart), then redeploy the preview (or push an empty commit).
 3. Create a **test member** in PassKit so no real customer balance changes.
 4. Run the smoke script against the preview with the test member's id:
 
    ```bash
-   STAFF_PASSCODE=<passcode> node scripts/smoke.mjs https://<preview-url> <member-id> --add 1
+   node scripts/smoke.mjs https://<preview-url> <member-id> --add 1
    ```
 
    Expect `lookup_customer -> HTTP 200` with the balance, then `add_points`

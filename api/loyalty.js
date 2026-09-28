@@ -14,7 +14,6 @@
 
 const passkit = require('../lib/passkit');
 const ledger = require('../lib/ledger');
-const auth = require('../lib/auth');
 
 const SOURCE_TAG = 'loyalty-scanner';
 
@@ -278,14 +277,6 @@ module.exports = async function handler(req, res) {
   const started = Date.now();
   const log = (extra) =>
     console.log(JSON.stringify({ src: SOURCE_TAG, action, ref, ms: Date.now() - started, ...extra }));
-
-  // Before anything else: this endpoint reads customer data and moves points,
-  // so an anonymous caller must not get as far as a member lookup.
-  const gate = auth.requireStaff(req);
-  if (gate) {
-    log({ denied: gate.body.error });
-    return send(res, gate.status, gate.body);
-  }
 
   if (!ref) {
     return send(res, 400, { ok: false, error: 'missing_qr_data', message: 'Scan a customer QR code first.' });

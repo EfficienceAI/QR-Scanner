@@ -32,7 +32,7 @@ Two systems hold data:
 | `lib/passkit.js` | PassKit Membership REST client (JWT signed per request) |
 | `lib/ledger.js` | PostgREST calls against `scan_events` with the service key |
 | `lib/time.js` | Timezone helpers, so buckets follow the shop's clock through DST |
-| `lib/auth.js` | The staff passcode / admin secret gate |
+| `lib/auth.js` | The admin secret gate for the backfill |
 | `supabase/migrations/*.sql` | Table, indexes, RLS and the two RPCs the stats read |
 | `test/*.test.js` | `node --test`, no test framework |
 | `vercel.json` | `outputDirectory: public`, an **empty** `buildCommand` (which also suppresses framework detection), and 60s `maxDuration` for the backfill |
@@ -48,10 +48,12 @@ Two systems hold data:
 - **The ledger must never delay or break a scan.** `recordEvent` never
   throws, and handlers respond *before* they record (`respondThenRecord` in
   `api/loyalty.js`). Do not move a ledger call in front of a response.
-- **Every API call carries the staff passcode.** `/api/loyalty` and
-  `/api/stats` refuse anonymous callers, and fail closed if
-  `STAFF_PASSCODE` is unset. The page asks once per device and stores it in
-  `localStorage`.
+- **The API is deliberately open.** `/api/loyalty` and `/api/stats` take no
+  application-level authentication: the scanner has to work the instant a
+  staff member picks the device up. Access control is the deployment's job
+  (Vercel Deployment Protection, or simply who has the URL), so do not add a
+  passcode here without being asked. `/api/admin/backfill` is the exception
+  and keeps its `ADMIN_SECRET`.
 - **`SUPABASE_SERVICE_KEY` is server-side only.** It bypasses RLS; the page
   must never see it.
 - **Amounts that cannot be read are `null`, not `0`.** The backfill parses
@@ -65,7 +67,6 @@ Two systems hold data:
 | `startScanner()` / `stopScanner()` | Camera lifecycle |
 | `tick()` | rAF loop that feeds frames to jsQR |
 | `handleScan(data)` | Processes a decoded QR and triggers the lookup |
-| `apiFetch(url, init)` | `fetch` for our API: adds the passcode, re-asks on 401 |
 | `lookupCustomer(qrData)` | POSTs `lookup_customer`, returns points/member/history |
 | `refreshCustomerPoints(qrData)` | Applies a lookup, dropping stale answers |
 | `setPointsDisplay(points, message)` | Balance, copy, and whether Redeem is armed |
@@ -85,8 +86,9 @@ address, or `http://localhost`, which browsers already treat as secure — a
 LAN IP will not work.
 
 Environment variables are listed with their purpose in `.env.example`.
-`STAFF_PASSCODE`, `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are required for
-the app to function at all.
+`SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are required for the scan counter
+and the chart; without them the scanner still works and only those are
+unavailable.
 
 Run migrations in order against the Supabase project before deploying a
 change that depends on them.
