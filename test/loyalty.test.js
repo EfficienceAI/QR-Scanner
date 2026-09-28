@@ -2,7 +2,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 process.env.PASSKIT_API_KEY = 'k'; process.env.PASSKIT_API_SECRET = 's';
 process.env.SUPABASE_URL = ''; process.env.SUPABASE_SERVICE_KEY = '';
+process.env.STAFF_PASSCODE = 'test-passcode';
 const handler = require('../api/loyalty');
+const { STAFF_HEADER } = require('../lib/auth');
 
 function fakePassKit(db) {
   return async (url, init) => {
@@ -19,11 +21,32 @@ function fakePassKit(db) {
     return json(404, { message: 'no route' });
   };
 }
-async function invoke(body) {
+async function invoke(body, headers) {
   const res = { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(x) { this.body = x ? JSON.parse(x) : null; } };
-  await handler({ method: 'POST', body }, res);
+  await handler({ method: 'POST', body, headers: headers || { [STAFF_HEADER]: 'test-passcode' } }, res);
   return res;
 }
+
+test('the API is closed to anyone without the staff passcode', async () => {
+  const db = { M1: { id: 'M1', programId: 'P', points: 50, person: {} } };
+  global.fetch = fakePassKit(db);
+  for (const headers of [{}, { [STAFF_HEADER]: 'wrong' }]) {
+    const r = await invoke({ action: 'remove_points', qr_data: 'M1', points: 50 }, headers);
+    assert.equal(r.statusCode, 401);
+    assert.equal(r.body.error, 'unauthorized');
+  }
+  assert.equal(db.M1.points, 50, 'balance untouched by unauthorised calls');
+
+  const prev = process.env.STAFF_PASSCODE;
+  delete process.env.STAFF_PASSCODE;
+  try {
+    const r = await invoke({ action: 'lookup_customer', qr_data: 'M1' }, { [STAFF_HEADER]: prev });
+    assert.equal(r.statusCode, 503, 'fails closed when no passcode is configured');
+    assert.equal(r.body.error, 'not_configured');
+  } finally {
+    process.env.STAFF_PASSCODE = prev;
+  }
+});
 
 test('remove_points burns points, refuses to go below zero, and add_points still earns', async () => {
   const db = { M1: { id: 'M1', programId: 'P', tierId: 't', points: 5, status: 'ENROLLED', person: { displayName: 'A B' } } };

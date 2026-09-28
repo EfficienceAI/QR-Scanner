@@ -214,6 +214,24 @@
   .toast.gold { color: var(--gold); }
   .toast.error { color: var(--red); }
 
+  /* ---------- staff passcode ---------- */
+  .lock {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0, 0, 0, 0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    display: grid; place-items: center; padding: 24px;
+  }
+  .lock[hidden] { display: none; }
+  .lock form { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  .lock h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .lock p { font-size: 14px; color: var(--text-2); line-height: 1.4; }
+  .lock input {
+    height: 52px; border: 1px solid var(--sep); border-radius: var(--radius-sm); outline: none;
+    background: var(--card); color: var(--text); text-align: center;
+    font-family: var(--font); font-size: 20px; font-weight: 600; letter-spacing: 0.08em;
+  }
+  .lock input:focus { border-color: var(--accent); }
+  .lock .err { font-size: 13px; color: var(--red); min-height: 18px; font-weight: 600; }
+
   /* ---------- stats ---------- */
   .stats { margin-top: 10px; }
   .stats .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 16px 10px; }
@@ -352,6 +370,16 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="lock" id="lock" hidden>
+  <form id="lockForm" autocomplete="off">
+    <h2>Staff passcode</h2>
+    <p>Enter the shop passcode to use the scanner. It is remembered on this device.</p>
+    <input type="password" id="lockInput" inputmode="numeric" autocomplete="current-password" aria-label="Staff passcode">
+    <button class="btn primary" type="submit">Unlock</button>
+    <div class="err" id="lockErr" role="alert"></div>
+  </form>
+</div>
+
 <script>
   const WEBHOOK_URL = '/api/loyalty';
   const STATS_URL = '/api/stats';
@@ -418,6 +446,73 @@
     document.getElementById('logToggle').classList.toggle('open', logEl.classList.contains('open'));
   }
 
+  // ---- Staff passcode -----------------------------------------------------
+  // The API refuses anonymous callers, so every request carries the shop
+  // passcode. It is entered once per device and kept in localStorage; a 401
+  // brings the lock screen back and the request is retried after unlocking.
+  var Passcode = {
+    KEY: 'loyalty.staffPasscode',
+    HEADER: 'X-Staff-Passcode',
+    value: '',
+    pending: null,
+    resolve: null,
+    lock: document.getElementById('lock'),
+    input: document.getElementById('lockInput'),
+    err: document.getElementById('lockErr'),
+    load: function () {
+      try { Passcode.value = localStorage.getItem(Passcode.KEY) || ''; } catch (err) { Passcode.value = ''; }
+      return Passcode.value;
+    },
+    save: function (v) {
+      Passcode.value = v;
+      try { localStorage.setItem(Passcode.KEY, v); } catch (err) { /* private mode: keep in memory */ }
+    },
+    forget: function () {
+      Passcode.value = '';
+      try { localStorage.removeItem(Passcode.KEY); } catch (err) { /* nothing to do */ }
+    },
+    /** Shows the lock screen; resolves once a passcode has been entered. */
+    ask: function (message) {
+      Passcode.err.textContent = message || '';
+      if (Passcode.pending) return Passcode.pending;
+      Passcode.input.value = '';
+      Passcode.lock.hidden = false;
+      setTimeout(function () { Passcode.input.focus(); }, 60);
+      Passcode.pending = new Promise(function (done) { Passcode.resolve = done; });
+      return Passcode.pending;
+    },
+    submit: function (value) {
+      if (!value) { Passcode.err.textContent = 'Enter the passcode.'; return; }
+      Passcode.save(value);
+      Passcode.lock.hidden = true;
+      var done = Passcode.resolve;
+      Passcode.pending = null; Passcode.resolve = null;
+      if (done) done();
+    },
+    start: function () {
+      document.getElementById('lockForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        Passcode.submit(Passcode.input.value.trim());
+      });
+      return Passcode.load();
+    }
+  };
+
+  /** fetch() for our own API: adds the passcode, re-asks for it on a 401. */
+  async function apiFetch(url, init) {
+    init = init || {};
+    var last = null;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (!Passcode.value) await Passcode.ask(attempt ? 'That passcode was not accepted.' : '');
+      var headers = Object.assign({}, init.headers || {});
+      headers[Passcode.HEADER] = Passcode.value;
+      last = await fetch(url, Object.assign({}, init, { headers: headers, cache: init.cache || 'no-store' }));
+      if (last.status !== 401) return last;
+      Passcode.forget();
+    }
+    return last;
+  }
+
   function parsePointValue(value) {
     var parsed = parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : null;
@@ -460,7 +555,7 @@
 
   async function lookupCustomer(qrData) {
     try {
-      var resp = await fetch(WEBHOOK_URL, {
+      var resp = await apiFetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'lookup_customer', qr_data: qrData, timestamp: new Date().toISOString() })
@@ -665,7 +760,7 @@
     setStatus((adding ? 'Adding' : 'Removing') + ' points…', 'active');
     var payload = { action: adding ? 'add_points' : 'remove_points', qr_data: currentQR, points: n, timestamp: new Date().toISOString() };
     try {
-      var resp = await fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       var data = await readResponsePayload(resp);
       if (resp.ok) {
         showToast((adding ? '+' : '−') + n + ' point' + (n > 1 ? 's' : '') + (adding ? ' added' : ' removed'), 'success');
@@ -697,7 +792,7 @@
     setStatus('Redeeming…', 'active');
     var payload = { action: 'redeem_points', qr_data: currentQR, points_to_remove: 9, timestamp: new Date().toISOString() };
     try {
-      var resp = await fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (resp.ok) {
         showToast('Free drink redeemed', 'gold', 3000);
         addLog('Redeemed −9 pts', 'redeem', currentQR);
@@ -741,7 +836,7 @@
     },
     load: async function () {
       try {
-        var resp = await fetch(STATS_URL + '?range=today', { cache: 'no-store' });
+        var resp = await apiFetch(STATS_URL + '?range=today');
         if (!resp.ok) return;
         var data = await resp.json();
         Counter.today = data.today; Counter.total = data.total;
@@ -771,7 +866,7 @@
       Chart.wrap.classList.add('loading');
       var q = STATS_URL + '?range=' + range + (from ? '&from=' + from + '&to=' + to : '');
       try {
-        var resp = await fetch(q, { cache: 'no-store' });
+        var resp = await apiFetch(q);
         var data = await resp.json();
         if (seq !== Chart.seq) return;
         if (!resp.ok) { Chart.note(data.message || 'Stats unavailable'); return; }
@@ -948,8 +1043,12 @@
   }
   function toggleTable() { document.getElementById('statsTable').classList.toggle('show'); }
 
-  Counter.start();
-  Chart.start();
+  // The passcode gates the whole page: nothing is fetched until it is entered.
+  (async function boot() {
+    if (!Passcode.start()) await Passcode.ask('');
+    Counter.start();
+    Chart.start();
+  })();
 
   // ---- Self-update -------------------------------------------------------
   // The shop device keeps this page open for days. Without this, a new

@@ -7,6 +7,7 @@
 
 const ledger = require('../lib/ledger');
 const T = require('../lib/time');
+const auth = require('../lib/auth');
 
 const TZ = process.env.SHOP_TIMEZONE || 'Europe/London';
 const cache = new Map(); // key -> { at, ttl, data }
@@ -143,6 +144,11 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'GET');
     return send(res, 405, { ok: false, error: 'method_not_allowed' });
   }
+  // Takings-adjacent numbers (volumes, trading hours, the day the shop opened)
+  // are staff-only, and an open endpoint is also an open cache key.
+  const gate = auth.requireStaff(req);
+  if (gate) return send(res, gate.status, gate.body);
+
   const url = new URL(req.url, 'http://x');
   const range = (url.searchParams.get('range') || 'today').toLowerCase();
   const from = url.searchParams.get('from') || '';
