@@ -294,6 +294,33 @@ module.exports = async function handler(req, res) {
       return send(res, 200, { ok: true, action, added: points, points: balance });
     }
 
+    if (action === 'remove_points') {
+      // Staff correction: take points off a customer (PassKit burn) without a redemption.
+      const points = positiveInt(body.points, 0);
+      if (!points || points > cfg.maxPointsPerScan) {
+        return send(res, 400, {
+          ok: false,
+          error: 'invalid_points',
+          message: `points must be a whole number between 1 and ${cfg.maxPointsPerScan}.`,
+        });
+      }
+      const before = summarizeMember(await passkit.getMember(ref));
+      if (before.points < points) {
+        log({ denied: 'insufficient_points', balance: before.points, remove: points });
+        return send(res, 409, {
+          ok: false,
+          error: 'insufficient_points',
+          message: `Customer has ${before.points} point${before.points === 1 ? '' : 's'}, cannot remove ${points}.`,
+          points: before.points,
+        });
+      }
+      const result = await passkit.burnPoints(ref, points, eventDetails(action, points));
+      const balance = num(result.points);
+      log({ removed: points, points: balance });
+      await ledger.recordEvent({ action: 'remove', memberId: before.id || ref.id || null, points }, { log });
+      return send(res, 200, { ok: true, action, removed: points, points: balance });
+    }
+
     if (action === 'redeem_points') {
       // The server decides the redemption cost; the client value is only logged.
       const cost = cfg.redeemCost;
@@ -319,7 +346,7 @@ module.exports = async function handler(req, res) {
     return send(res, 400, {
       ok: false,
       error: 'unknown_action',
-      message: 'action must be lookup_customer, add_points or redeem_points.',
+      message: 'action must be lookup_customer, add_points, remove_points or redeem_points.',
     });
   } catch (err) {
     if (err instanceof passkit.PassKitError) {

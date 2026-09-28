@@ -26,6 +26,7 @@ is unchanged apart from the URL it posts to.
 | ----------------- | ----------------------------------- | --------------------------------------------- |
 | `lookup_customer` | `qr_data`                           | `{ ok, points, member, history }` (see below)   |
 | `add_points`      | `qr_data`, `points` (1–99)          | `{ ok, added, points }`                        |
+| `remove_points`   | `qr_data`, `points` (1–99)          | `{ ok, removed, points }` (staff correction; 409 if the balance is lower) |
 | `redeem_points`   | `qr_data`, `points_to_remove`       | `{ ok, redeemed, points }`                     |
 
 `member` carries `id`, `name`, `tier`, `tierName`, `status`, `points`,

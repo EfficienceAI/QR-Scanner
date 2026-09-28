@@ -19,9 +19,10 @@
     --text: #f5f5f7;
     --text-2: rgba(235, 235, 245, 0.62);
     --text-3: rgba(235, 235, 245, 0.32);
-    --accent: #30d158;
-    --accent-ink: #04210f;
-    --accent-tint: rgba(48, 209, 88, 0.16);
+    --accent: #0a84ff;
+    --accent-ink: #ffffff;
+    --accent-tint: rgba(10, 132, 255, 0.18);
+    --green: #30d158;
     --blue: #0a84ff;
     --gold: #ffd60a;
     --gold-tint: rgba(255, 214, 10, 0.14);
@@ -87,7 +88,7 @@
   .frame i:nth-child(4) { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-radius: 0 0 10px 0; }
   .frame::after {
     content: ''; position: absolute; left: 8%; right: 8%; top: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(48, 209, 88, 0.9), transparent);
+    background: linear-gradient(90deg, transparent, rgba(10, 132, 255, 0.95), transparent);
     animation: scan 2.2s ease-in-out infinite;
   }
   @keyframes scan { 0%, 100% { top: 4%; opacity: 0.2; } 50% { top: 94%; opacity: 1; } }
@@ -110,6 +111,7 @@
   .btn:disabled { opacity: 0.4; cursor: default; transform: none; }
   .btn.primary { background: var(--accent); color: var(--accent-ink); }
   .btn.gold { background: var(--gold-tint); color: var(--gold); }
+  .btn.danger { background: rgba(255, 69, 58, 0.16); color: var(--red); }
   .btn.quiet { background: var(--fill); color: var(--text); }
   .btn.auto { width: auto; }
   .btn svg { width: 18px; height: 18px; }
@@ -182,7 +184,7 @@
   .status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--sep); font-size: 13px; color: var(--text-2); }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
   .dot.active { background: var(--accent); animation: pulse 1.4s infinite; }
-  .dot.success { background: var(--accent); }
+  .dot.success { background: var(--green); }
   .dot.error { background: var(--red); }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
@@ -194,7 +196,8 @@
   .log-entry { padding: 10px 14px; font-size: 12.5px; font-family: var(--mono); word-break: break-all; }
   .log-entry + .log-entry { border-top: 1px solid var(--sep); }
   .log-entry .time { color: var(--text-3); margin-right: 8px; }
-  .log-entry .add { color: var(--accent); }
+  .log-entry .add { color: var(--green); }
+  .log-entry .remove { color: var(--red); }
   .log-entry .redeem { color: var(--gold); }
   .log-entry .fail { color: var(--red); }
 
@@ -207,7 +210,7 @@
     transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
-  .toast.success { color: var(--accent); }
+  .toast.success { color: var(--green); }
   .toast.gold { color: var(--gold); }
   .toast.error { color: var(--red); }
 
@@ -296,15 +299,15 @@
         <div class="copy" id="pointsCopy">Scan a customer to load their balance.</div>
       </div>
       <div class="row stepper">
-        <div class="label">Drinks to add</div>
+        <div class="label">Drinks to add or remove</div>
         <button type="button" id="btnMinus" onclick="adjustPoints(-1)" aria-label="Fewer">&minus;</button>
-        <input type="number" id="pointsInput" value="" min="1" max="99" placeholder="0" inputmode="numeric" oninput="onPointsInput()">
+        <input type="number" id="pointsInput" value="" min="-99" max="99" placeholder="0" inputmode="numeric" oninput="onPointsInput()">
         <button type="button" id="btnPlus" onclick="adjustPoints(1)" aria-label="More">+</button>
       </div>
     </div>
 
     <div class="actions">
-      <button class="btn primary" id="btnAdd" disabled onclick="sendAddPoints()">Add points</button>
+      <button class="btn primary" id="btnAdd" disabled onclick="sendPoints()">Add or remove points</button>
       <button class="btn gold" id="btnRedeem" onclick="sendRedeem()">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.6 9.4l6.5-.9z"/></svg>
         <span id="btnRedeemText">Redeem free drink</span>
@@ -626,7 +629,7 @@
     resetCustomerCard(data);
     setPointsDisplay(null, 'Loading…');
     document.getElementById('pointsInput').value = '';
-    btnAdd.disabled = true; btnAdd.textContent = 'Add points';
+    btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
     btnRedeem.hidden = true;
     resultPanel.classList.add('active');
     setStatus('Scanned', 'success');
@@ -635,44 +638,57 @@
   }
 
   // ---- Points ----
+  // Positive = add (PassKit earn), negative = remove (PassKit burn, a staff correction).
   function adjustPoints(delta) {
     var input = document.getElementById('pointsInput');
     var current = parseInt(input.value) || 0;
-    input.value = Math.max(1, Math.min(99, current + delta));
+    input.value = Math.max(-99, Math.min(99, current + delta));
     onPointsInput();
   }
+  function pointsLabel(n) { return Math.abs(n) + ' point' + (Math.abs(n) === 1 ? '' : 's'); }
   function onPointsInput() {
     var val = parseInt(document.getElementById('pointsInput').value);
-    if (val > 0) { selectedPoints = val; btnAdd.disabled = false; btnAdd.textContent = 'Add ' + val + ' point' + (val > 1 ? 's' : ''); }
-    else { selectedPoints = 0; btnAdd.disabled = true; btnAdd.textContent = 'Add points'; }
+    if (!Number.isFinite(val) || val === 0) {
+      selectedPoints = 0; btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
+      return;
+    }
+    selectedPoints = Math.max(-99, Math.min(99, val));
+    btnAdd.disabled = false;
+    btnAdd.className = selectedPoints > 0 ? 'btn primary' : 'btn danger';
+    btnAdd.textContent = (selectedPoints > 0 ? 'Add ' : 'Remove ') + pointsLabel(selectedPoints);
   }
-  async function sendAddPoints() {
+  async function sendPoints() {
     if (!selectedPoints || !currentQR) return;
+    var adding = selectedPoints > 0;
+    var n = Math.abs(selectedPoints);
     btnAdd.disabled = true; btnAdd.textContent = 'Sending…';
-    setStatus('Adding points…', 'active');
-    var payload = { action: 'add_points', qr_data: currentQR, points: selectedPoints, timestamp: new Date().toISOString() };
+    setStatus((adding ? 'Adding' : 'Removing') + ' points…', 'active');
+    var payload = { action: adding ? 'add_points' : 'remove_points', qr_data: currentQR, points: n, timestamp: new Date().toISOString() };
     try {
       var resp = await fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      var data = await readResponsePayload(resp);
       if (resp.ok) {
-        showToast('+' + selectedPoints + ' point' + (selectedPoints > 1 ? 's' : '') + ' added', 'success');
-        addLog('+' + selectedPoints + ' pts', 'add', currentQR);
-        setStatus('Points added', 'success');
-        btnAdd.textContent = 'Added';
-        noteVisitNow();
-        var updatedPoints = extractPoints(await readResponsePayload(resp));
+        showToast((adding ? '+' : '−') + n + ' point' + (n > 1 ? 's' : '') + (adding ? ' added' : ' removed'), 'success');
+        addLog((adding ? '+' : '−') + n + ' pts', adding ? 'add' : 'remove', currentQR);
+        setStatus(adding ? 'Points added' : 'Points removed', 'success');
+        btnAdd.textContent = adding ? 'Added' : 'Removed';
+        if (adding) noteVisitNow();
+        var updatedPoints = extractPoints(data);
         if (updatedPoints !== null) setPointsDisplay(updatedPoints);
         else if (typeof currentPoints === 'number') setPointsDisplay(currentPoints + selectedPoints);
       } else {
-        showToast('Could not add points. Try again.', 'error');
-        addLog('Failed +' + selectedPoints, 'fail', 'HTTP ' + resp.status);
-        setStatus('Could not add points', 'error');
-        btnAdd.disabled = false; btnAdd.textContent = 'Retry: add ' + selectedPoints;
+        var why = (data && data.message) || ('Could not ' + (adding ? 'add' : 'remove') + ' points. Try again.');
+        showToast(why, 'error', 3500);
+        addLog('Failed ' + (adding ? '+' : '−') + n, 'fail', 'HTTP ' + resp.status);
+        setStatus(why, 'error');
+        btnAdd.disabled = false; btnAdd.textContent = 'Retry: ' + (adding ? 'add ' : 'remove ') + pointsLabel(n);
+        if (data && typeof data.points === 'number') setPointsDisplay(data.points);
       }
     } catch (err) {
       showToast('Network error. Try again.', 'error');
       addLog('Network error', 'fail', err.message);
       setStatus('Network error', 'error');
-      btnAdd.disabled = false; btnAdd.textContent = 'Retry: add ' + selectedPoints;
+      btnAdd.disabled = false; btnAdd.textContent = 'Retry: ' + (adding ? 'add ' : 'remove ') + pointsLabel(n);
     }
   }
   async function sendRedeem() {

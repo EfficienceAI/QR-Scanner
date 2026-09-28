@@ -6,7 +6,7 @@
 create table if not exists public.scan_events (
   id           bigint generated always as identity primary key,
   occurred_at  timestamptz not null default now(),
-  action       text not null check (action in ('lookup', 'add', 'redeem')),
+  action       text not null check (action in ('lookup', 'add', 'remove', 'redeem')),
   points       integer not null default 0,
   member_id    text,
   source       text not null default 'scanner',   -- 'scanner' | 'passkit-backfill'
