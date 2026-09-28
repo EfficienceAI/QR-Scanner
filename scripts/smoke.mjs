@@ -25,13 +25,16 @@ const add = addIdx >= 0 ? parseInt(flags[addIdx + 1], 10) : 0;
 const redeem = flags.includes('--redeem');
 const url = base.replace(/\/+$/, '') + '/api/loyalty';
 
+/** One key per action, so a retry of the same call is not counted twice. */
+const requestId = () => crypto.randomUUID();
+
 async function call(payload) {
   const headers = { 'Content-Type': 'application/json' };
   if (process.env.VERCEL_BYPASS) headers['x-vercel-protection-bypass'] = process.env.VERCEL_BYPASS;
   const resp = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ ...payload, timestamp: new Date().toISOString() }),
+    body: JSON.stringify({ ...payload, request_id: requestId(), timestamp: new Date().toISOString() }),
   });
   const text = await resp.text();
   let data;

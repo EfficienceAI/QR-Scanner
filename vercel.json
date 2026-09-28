@@ -1,4 +1,7 @@
 {
   "buildCommand": "",
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "functions": {
+    "api/admin/backfill.js": { "maxDuration": 60 }
+  }
 }

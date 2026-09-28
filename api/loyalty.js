@@ -13,6 +13,7 @@
  */
 
 const passkit = require('../lib/passkit');
+const ledger = require('../lib/ledger');
 
 const SOURCE_TAG = 'loyalty-scanner';
 
@@ -32,6 +33,16 @@ function settings() {
     maxPointsPerScan: positiveInt(process.env.LOYALTY_MAX_POINTS_PER_SCAN, 99),
     idMode: (process.env.PASSKIT_ID_MODE || 'id').toLowerCase(),
   };
+}
+
+/**
+ * The client's idempotency key for this action, namespaced so it can never
+ * collide with a PassKit event id in the same unique column. Anything missing
+ * or oversized simply means "no key", and the row is written unconditionally.
+ */
+function requestKey(body) {
+  const raw = typeof body.request_id === 'string' ? body.request_id.trim() : '';
+  return raw && raw.length <= 64 ? `scan:${raw}` : null;
 }
 
 function readBody(req) {
@@ -232,6 +243,21 @@ function send(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+/**
+ * Respond first, record second.
+ *
+ * The ledger is our own analytics, never the balance, so it must not sit in
+ * front of a scan: an unhealthy Supabase used to add its whole timeout to
+ * every single scan, and staff who think the tap failed tap again. res.end()
+ * has already flushed by the time the write starts, so the queue waits for
+ * PassKit alone -- but the invocation stays alive until the write settles, so
+ * nothing is silently dropped either. recordEvent never throws.
+ */
+function respondThenRecord(res, payload, event, log) {
+  send(res, 200, payload);
+  return ledger.recordEvent(event, { log });
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -247,6 +273,7 @@ module.exports = async function handler(req, res) {
   const body = readBody(req);
   const action = String(body.action || '').toLowerCase();
   const ref = memberRefFromQr(body.qr_data, cfg.idMode);
+  const requestId = requestKey(body);
   const started = Date.now();
   const log = (extra) =>
     console.log(JSON.stringify({ src: SOURCE_TAG, action, ref, ms: Date.now() - started, ...extra }));
@@ -273,7 +300,21 @@ module.exports = async function handler(req, res) {
         lastVisit: history.lastVisit,
         retentionDays: history.retentionDays,
       });
-      return send(res, 200, { ok: true, action, points: member.points, member, history });
+      return respondThenRecord(
+        res,
+        // The page needs these to label its own buttons; the server still
+        // decides what a redemption costs and what it will accept.
+        {
+          ok: true,
+          action,
+          points: member.points,
+          member,
+          history,
+          settings: { redeemCost: cfg.redeemCost, maxPointsPerScan: cfg.maxPointsPerScan },
+        },
+        { action: 'lookup', memberId: member.id, requestId },
+        log
+      );
     }
 
     if (action === 'add_points') {
@@ -288,7 +329,43 @@ module.exports = async function handler(req, res) {
       const result = await passkit.earnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ added: points, points: balance });
-      return send(res, 200, { ok: true, action, added: points, points: balance });
+      return respondThenRecord(
+        res,
+        { ok: true, action, added: points, points: balance },
+        { action: 'add', memberId: ref.id || result.id || null, points, requestId },
+        log
+      );
+    }
+
+    if (action === 'remove_points') {
+      // Staff correction: take points off a customer (PassKit burn) without a redemption.
+      const points = positiveInt(body.points, 0);
+      if (!points || points > cfg.maxPointsPerScan) {
+        return send(res, 400, {
+          ok: false,
+          error: 'invalid_points',
+          message: `points must be a whole number between 1 and ${cfg.maxPointsPerScan}.`,
+        });
+      }
+      const before = summarizeMember(await passkit.getMember(ref));
+      if (before.points < points) {
+        log({ denied: 'insufficient_points', balance: before.points, remove: points });
+        return send(res, 409, {
+          ok: false,
+          error: 'insufficient_points',
+          message: `Customer has ${before.points} point${before.points === 1 ? '' : 's'}, cannot remove ${points}.`,
+          points: before.points,
+        });
+      }
+      const result = await passkit.burnPoints(ref, points, eventDetails(action, points));
+      const balance = num(result.points);
+      log({ removed: points, points: balance });
+      return respondThenRecord(
+        res,
+        { ok: true, action, removed: points, points: balance },
+        { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
+        log
+      );
     }
 
     if (action === 'redeem_points') {
@@ -309,13 +386,18 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, cost, eventDetails(action, cost));
       const balance = num(result.points);
       log({ redeemed: cost, requested, points: balance });
-      return send(res, 200, { ok: true, action, redeemed: cost, points: balance });
+      return respondThenRecord(
+        res,
+        { ok: true, action, redeemed: cost, points: balance },
+        { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
+        log
+      );
     }
 
     return send(res, 400, {
       ok: false,
       error: 'unknown_action',
-      message: 'action must be lookup_customer, add_points or redeem_points.',
+      message: 'action must be lookup_customer, add_points, remove_points or redeem_points.',
     });
   } catch (err) {
     if (err instanceof passkit.PassKitError) {
@@ -341,4 +423,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt };
+module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt, requestKey };
