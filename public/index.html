@@ -641,9 +641,16 @@
     if (seq !== lookupSeq || qrData !== currentQR) return;
     Cfg.apply(result.settings);
     if (result.error || result.points === null) {
-      setPointsDisplay(null, result.error || 'Unable to load points for this QR code.');
+      // This path set neither the status nor the log, so the dot stayed green on
+      // "Scanned" above the words "Unable to load points", and the activity log
+      // -- the only diagnostic anyone has on a shop phone -- showed nothing at
+      // all. Every other outcome in this file logs.
+      var why = result.error || 'Unable to load points for this QR code.';
+      setPointsDisplay(null, why);
       custName.textContent = 'Member not found';
       renderHistory(null);
+      setStatus(why, 'error');
+      addLog('Lookup failed', 'fail', why);
       return;
     }
     currentMember = result.member;
