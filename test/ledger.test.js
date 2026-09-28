@@ -42,12 +42,19 @@ test('getTotals and getSeries call the RPCs and normalise numbers', async () => 
   });
 });
 
-test('upsertBackfill ignores duplicates by external id', async () => {
+test('upsertBackfill ignores duplicates by external id and counts what was stored', async () => {
   await withEnv({ url: 'https://db.supabase.co', key: 'svc' }, async () => {
     let seen;
-    const n = await ledger.upsertBackfill([{ action: 'add', external_id: 'e1' }], { fetchImpl: async (url, init) => { seen = { url, init }; return { ok: true, status: 201, text: async () => '' }; } });
-    assert.equal(n, 1);
-    assert.ok(seen.url.endsWith('/scan_events?on_conflict=external_id'));
-    assert.equal(seen.init.headers.Prefer, 'resolution=ignore-duplicates,return=minimal');
+    const rows = [{ action: 'add', external_id: 'e1' }, { action: 'add', external_id: 'e2' }];
+    const reply = (body) => async (url, init) => { seen = { url, init }; return { ok: true, status: 201, text: async () => body }; };
+
+    const first = await ledger.upsertBackfill(rows, { fetchImpl: reply('[{"id":1},{"id":2}]') });
+    assert.deepEqual(first, { sent: 2, inserted: 2 });
+    assert.ok(seen.url.endsWith('/scan_events?on_conflict=external_id&select=id'));
+    assert.equal(seen.init.headers.Prefer, 'resolution=ignore-duplicates,return=representation');
+
+    // A re-run over the same events must not claim to have imported them again.
+    const again = await ledger.upsertBackfill(rows, { fetchImpl: reply('[]') });
+    assert.deepEqual(again, { sent: 2, inserted: 0 });
   });
 });

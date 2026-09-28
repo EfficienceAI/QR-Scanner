@@ -92,7 +92,7 @@ module.exports = async function handler(req, res) {
     const totals = await ledger.getTotals();
     const cutoff = totals.liveSince ? Date.parse(totals.liveSince) : Date.now();
 
-    let imported = 0, seen = 0, skippedAfterCutoff = 0, skippedOther = 0, unknownPoints = 0, done = false;
+    let imported = 0, sent = 0, seen = 0, skippedAfterCutoff = 0, skippedOther = 0, unknownPoints = 0, done = false;
     const samples = [];
     for (let p = 0; p < pages; p += 1) {
       const events = await passkit.listProgramEvents(pid, { limit: PAGE, offset });
@@ -115,15 +115,21 @@ module.exports = async function handler(req, res) {
           external_id: e.id || `${(e.member && e.member.id) || 'x'}:${at}:${e.eventType}`,
         });
       }
-      if (!dryRun) {
-        for (let i = 0; i < rows.length; i += 500) imported += await ledger.upsertBackfill(rows.slice(i, i + 500));
+      if (dryRun) {
+        sent += rows.length; // what a real run would have offered the ledger
       } else {
-        imported += rows.length; // what a real run would have sent
+        for (let i = 0; i < rows.length; i += 500) {
+          const wrote = await ledger.upsertBackfill(rows.slice(i, i + 500));
+          sent += wrote.sent;
+          imported += wrote.inserted;
+        }
       }
       offset += events.length;
       if (events.length < PAGE) { done = true; break; }
     }
-    const body = { ok: true, dryRun, programId: pid, cutoff: new Date(cutoff).toISOString(), seen, imported, skippedAfterCutoff, skippedOther, unknownPoints, samples, nextOffset: offset, done, ms: Date.now() - started };
+    // `sent` is what we offered the ledger, `imported` what it actually stored:
+    // on a second run over the same events imported is 0 and that is correct.
+    const body = { ok: true, dryRun, programId: pid, cutoff: new Date(cutoff).toISOString(), seen, sent, imported, skippedAfterCutoff, skippedOther, unknownPoints, samples, nextOffset: offset, done, ms: Date.now() - started };
     console.log(JSON.stringify({ src: 'loyalty-backfill', ...body }));
     return send(res, 200, body);
   } catch (err) {
