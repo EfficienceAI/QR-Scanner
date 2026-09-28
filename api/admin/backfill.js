@@ -14,6 +14,7 @@
 
 const passkit = require('../../lib/passkit');
 const ledger = require('../../lib/ledger');
+const auth = require('../../lib/auth');
 
 const PAGE = 1000;
 const EARN = 'EVENT_MEMBER_POINTS_EARNED';
@@ -76,9 +77,12 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return send(res, 405, { ok: false, error: 'method_not_allowed' });
   }
-  const secret = process.env.ADMIN_SECRET || '';
-  if (!secret) return send(res, 503, { ok: false, error: 'not_configured', message: 'ADMIN_SECRET is not set.' });
-  if (req.headers['x-admin-secret'] !== secret) return send(res, 401, { ok: false, error: 'unauthorized' });
+  // Was a plain !== against the header, which compares byte by byte and
+  // returns early, and nothing slowed repeated guesses at a route that can
+  // write to the ledger in bulk. requireAdmin compares in constant time over a
+  // digest and brakes after ten failures.
+  const gate = auth.requireAdmin(req);
+  if (gate) return send(res, gate.status, gate.body);
 
   const url = new URL(req.url, 'http://x');
   let offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
