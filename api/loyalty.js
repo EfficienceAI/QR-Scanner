@@ -234,6 +234,21 @@ function send(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+/**
+ * Respond first, record second.
+ *
+ * The ledger is our own analytics, never the balance, so it must not sit in
+ * front of a scan: an unhealthy Supabase used to add its whole timeout to
+ * every single scan, and staff who think the tap failed tap again. res.end()
+ * has already flushed by the time the write starts, so the queue waits for
+ * PassKit alone -- but the invocation stays alive until the write settles, so
+ * nothing is silently dropped either. recordEvent never throws.
+ */
+function respondThenRecord(res, payload, event, log) {
+  send(res, 200, payload);
+  return ledger.recordEvent(event, { log });
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -283,8 +298,12 @@ module.exports = async function handler(req, res) {
         lastVisit: history.lastVisit,
         retentionDays: history.retentionDays,
       });
-      await ledger.recordEvent({ action: 'lookup', memberId: member.id }, { log });
-      return send(res, 200, { ok: true, action, points: member.points, member, history });
+      return respondThenRecord(
+        res,
+        { ok: true, action, points: member.points, member, history },
+        { action: 'lookup', memberId: member.id },
+        log
+      );
     }
 
     if (action === 'add_points') {
@@ -299,8 +318,12 @@ module.exports = async function handler(req, res) {
       const result = await passkit.earnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ added: points, points: balance });
-      await ledger.recordEvent({ action: 'add', memberId: ref.id || result.id || null, points }, { log });
-      return send(res, 200, { ok: true, action, added: points, points: balance });
+      return respondThenRecord(
+        res,
+        { ok: true, action, added: points, points: balance },
+        { action: 'add', memberId: ref.id || result.id || null, points },
+        log
+      );
     }
 
     if (action === 'remove_points') {
@@ -326,8 +349,12 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ removed: points, points: balance });
-      await ledger.recordEvent({ action: 'remove', memberId: before.id || ref.id || null, points }, { log });
-      return send(res, 200, { ok: true, action, removed: points, points: balance });
+      return respondThenRecord(
+        res,
+        { ok: true, action, removed: points, points: balance },
+        { action: 'remove', memberId: before.id || ref.id || null, points },
+        log
+      );
     }
 
     if (action === 'redeem_points') {
@@ -348,8 +375,12 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, cost, eventDetails(action, cost));
       const balance = num(result.points);
       log({ redeemed: cost, requested, points: balance });
-      await ledger.recordEvent({ action: 'redeem', memberId: before.id || ref.id || null, points: cost }, { log });
-      return send(res, 200, { ok: true, action, redeemed: cost, points: balance });
+      return respondThenRecord(
+        res,
+        { ok: true, action, redeemed: cost, points: balance },
+        { action: 'redeem', memberId: before.id || ref.id || null, points: cost },
+        log
+      );
     }
 
     return send(res, 400, {

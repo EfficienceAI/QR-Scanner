@@ -48,6 +48,41 @@ test('the API is closed to anyone without the staff passcode', async () => {
   }
 });
 
+test('a scan answers before it records, and records what it answered', async () => {
+  const db = { M1: { id: 'M1', programId: 'P', points: 4, person: {} } };
+  const passkit = fakePassKit(db);
+  const writes = [];
+  let release;
+  const ledgerHung = new Promise((r) => { release = r; });
+  global.fetch = async (url, init) => {
+    if (String(url).includes('/rest/v1/')) {
+      writes.push({ url: String(url), rows: JSON.parse(init.body) });
+      await ledgerHung; // an unhealthy ledger must not be felt at the counter
+      return { ok: true, status: 201, text: async () => '' };
+    }
+    return passkit(url, init);
+  };
+  process.env.SUPABASE_URL = 'https://db.supabase.co';
+  process.env.SUPABASE_SERVICE_KEY = 'svc';
+  try {
+    let flushed = false;
+    const res = { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(x) { this.body = x ? JSON.parse(x) : null; flushed = true; } };
+    const pending = handler({ method: 'POST', headers: { [STAFF_HEADER]: 'test-passcode' }, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
+    for (let i = 0; i < 100 && !writes.length; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(flushed, true, 'response is already out while the ledger write is still open');
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.points, 7);
+    assert.equal(writes.length, 1, 'the scan really does reach the ledger');
+    assert.equal(writes[0].rows[0].action, 'add');
+    assert.equal(writes[0].rows[0].points, 3);
+    assert.equal(writes[0].rows[0].member_id, 'M1');
+    release();
+    await pending;
+  } finally {
+    process.env.SUPABASE_URL = ''; process.env.SUPABASE_SERVICE_KEY = '';
+  }
+});
+
 test('remove_points burns points, refuses to go below zero, and add_points still earns', async () => {
   const db = { M1: { id: 'M1', programId: 'P', tierId: 't', points: 5, status: 'ENROLLED', person: { displayName: 'A B' } } };
   global.fetch = fakePassKit(db);
