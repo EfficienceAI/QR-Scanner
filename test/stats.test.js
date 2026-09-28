@@ -77,3 +77,26 @@ test('buildStats composes totals and series', async () => {
   assert.equal(r.body.today, 25); assert.equal(r.body.total, 4812);
   assert.equal(r.body.series[6].scans, 25); assert.equal(r.body.summary.scans, 25);
 });
+
+test('the stats cache is capped and drops the least recently used entry', () => {
+  const { cacheGet, cachePut, cache, CACHE_MAX } = require('../api/stats')._internals;
+  cache.clear();
+  const put = (key) => cachePut(key, { at: Date.now(), ttl: 120000, status: 200, data: { key } });
+
+  for (let i = 0; i < CACHE_MAX + 20; i++) put(`custom|2026-01-01|day-${i}`);
+  assert.equal(cache.size, CACHE_MAX, 'an unauthenticated range parameter cannot grow this without bound');
+  assert.equal(cacheGet('custom|2026-01-01|day-0'), null, 'the oldest entries are gone');
+  assert.ok(cacheGet(`custom|2026-01-01|day-${CACHE_MAX + 19}`), 'the newest is still there');
+
+  // A hit refreshes recency, so a key that keeps being read survives.
+  const hot = 'today||';
+  put(hot);
+  for (let i = 0; i < CACHE_MAX - 1; i++) { assert.ok(cacheGet(hot)); put(`filler-${i}`); }
+  assert.ok(cacheGet(hot), 'the key being read every time is the last to go');
+
+  cache.clear();
+  put('stale');
+  cache.get('stale').at = Date.now() - 200000; // older than its ttl
+  assert.equal(cacheGet('stale'), null, 'expired entries are dropped, not served');
+  assert.equal(cache.size, 0);
+});

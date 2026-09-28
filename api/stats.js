@@ -10,7 +10,36 @@ const T = require('../lib/time');
 const auth = require('../lib/auth');
 
 const TZ = process.env.SHOP_TIMEZONE || 'Europe/London';
-const cache = new Map(); // key -> { at, ttl, data }
+
+/**
+ * Response cache, keyed by range + window.
+ *
+ * Fluid Compute reuses an instance across requests, so this outlives a single
+ * call: with `custom` accepting any pair of dates and nothing evicting, it was
+ * a Map that only ever grew, each entry up to 366 buckets. Capped and
+ * least-recently-used from here on. A Map iterates in insertion order, so
+ * re-inserting on a hit is enough to make the first key the oldest.
+ */
+const CACHE_MAX = 50;
+const cache = new Map(); // key -> { at, ttl, status, data }
+
+function cacheGet(key) {
+  const hit = cache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at >= hit.ttl) {
+    cache.delete(key);
+    return null;
+  }
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit;
+}
+
+function cachePut(key, entry) {
+  cache.delete(key);
+  cache.set(key, entry);
+  while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+}
 
 function send(res, status, payload) {
   res.statusCode = status;
@@ -165,12 +194,12 @@ module.exports = async function handler(req, res) {
   const to = url.searchParams.get('to') || '';
   const key = `${range}|${from}|${to}`;
   const ttl = range === 'today' ? 20_000 : 120_000;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < hit.ttl) return send(res, hit.status, { ...hit.data, cached: true });
+  const hit = cacheGet(key);
+  if (hit) return send(res, hit.status, { ...hit.data, cached: true });
 
   try {
     const { status, body } = await buildStats(range, from, to);
-    if (status === 200) cache.set(key, { at: Date.now(), ttl, status, data: body });
+    if (status === 200) cachePut(key, { at: Date.now(), ttl, status, data: body });
     return send(res, status, body);
   } catch (err) {
     console.log(JSON.stringify({ src: 'loyalty-stats', error: err.name, status: err.status, message: err.message }));
@@ -181,4 +210,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { planRange, mergeSeries, summarize, buildStats };
+module.exports._internals = { planRange, mergeSeries, summarize, buildStats, cacheGet, cachePut, cache, CACHE_MAX };
