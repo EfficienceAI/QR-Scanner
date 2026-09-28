@@ -1,0 +1,4 @@
+# Vendored, unmodified third-party code. core.autocrlf would rewrite the line
+# endings on checkout and change the bytes the browser receives, which would
+# make the sha384 recorded next to the script tag wrong.
+public/vendor/** -text
