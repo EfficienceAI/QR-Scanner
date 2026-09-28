@@ -7,7 +7,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Loyalty</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<!-- jsQR 1.4.0, vendored from https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js
+     sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o
+     Served from our own origin: this page moves customer balances, so it should
+     not run a script a third party can change, and jsDelivr minifies on demand,
+     which rules out an SRI hash. Upstream: https://github.com/cozmo/jsQR -->
+<script src="/vendor/jsQR-1.4.0.min.js"></script>
 <style>
   :root {
     --bg: #000;
