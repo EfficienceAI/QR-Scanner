@@ -39,6 +39,10 @@
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* The hidden attribute is only display:none in the UA stylesheet, and any
+     author `display` outranks it whatever the specificity. .btn sets
+     display:inline-flex, so btnRedeem.hidden = true did nothing at all. */
+  [hidden] { display: none !important; }
   html { background: var(--bg); }
   body {
     font-family: var(--font);
@@ -231,7 +235,6 @@
     background: rgba(0, 0, 0, 0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     display: grid; place-items: center; padding: 24px;
   }
-  .lock[hidden] { display: none; }
   .lock form { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
   .lock h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
   .lock p { font-size: 14px; color: var(--text-2); line-height: 1.4; }
