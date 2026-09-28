@@ -431,6 +431,22 @@
   let redeemLocked = false;
   let redeemBusy = false;
 
+  // Business rules belong to the server (LOYALTY_REDEEM_COST,
+  // LOYALTY_MAX_POINTS_PER_SCAN). These values are only what the page shows
+  // before the first lookup answers; every action is still judged server-side.
+  var Cfg = {
+    redeemCost: 9,
+    maxPointsPerScan: 99,
+    apply: function (s) {
+      if (!s) return;
+      if (typeof s.redeemCost === 'number' && s.redeemCost > 0) Cfg.redeemCost = Math.round(s.redeemCost);
+      if (typeof s.maxPointsPerScan === 'number' && s.maxPointsPerScan > 0) Cfg.maxPointsPerScan = Math.round(s.maxPointsPerScan);
+      var input = document.getElementById('pointsInput');
+      input.min = String(-Cfg.maxPointsPerScan);
+      input.max = String(Cfg.maxPointsPerScan);
+    }
+  };
+
   function setStatus(text, state) {
     statusText.textContent = text;
     statusDot.className = 'dot' + (state ? ' ' + state : '');
@@ -555,8 +571,8 @@
   function setPointsDisplay(points, message) {
     currentPoints = points;
     pointsValue.textContent = points === null ? '—' : String(points);
-    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= 9 ? 'A free drink is available.' : (9 - points) + ' more to a free drink.'));
-    btnRedeem.hidden = !(typeof points === 'number' && points >= 9);
+    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= Cfg.redeemCost ? 'A free drink is available.' : (Cfg.redeemCost - points) + ' more to a free drink.'));
+    btnRedeem.hidden = !(typeof points === 'number' && points >= Cfg.redeemCost);
     if (!btnRedeem.hidden) {
       btnRedeem.disabled = redeemLocked || redeemBusy;
       if (!redeemLocked && !redeemBusy) btnRedeemText.textContent = 'Redeem free drink';
@@ -578,7 +594,7 @@
       });
       var payload = await readResponsePayload(resp);
       if (!resp.ok) return { error: (payload && payload.message) || ('HTTP ' + resp.status) };
-      return { points: extractPoints(payload), member: (payload && payload.member) || null, history: (payload && payload.history) || null };
+      return { points: extractPoints(payload), member: (payload && payload.member) || null, history: (payload && payload.history) || null, settings: (payload && payload.settings) || null };
     } catch (err) {
       return { error: 'Network error' };
     }
@@ -593,6 +609,7 @@
     // It would render A's name and arm A's balance while currentQR is B, and
     // the next redemption would debit B. Chart.load guards the same way.
     if (seq !== lookupSeq || qrData !== currentQR) return;
+    Cfg.apply(result.settings);
     if (result.error || result.points === null) {
       setPointsDisplay(null, result.error || 'Unable to load points for this QR code.');
       custName.textContent = 'Member not found';
@@ -760,7 +777,7 @@
   function adjustPoints(delta) {
     var input = document.getElementById('pointsInput');
     var current = parseInt(input.value) || 0;
-    input.value = Math.max(-99, Math.min(99, current + delta));
+    input.value = Math.max(-Cfg.maxPointsPerScan, Math.min(Cfg.maxPointsPerScan, current + delta));
     onPointsInput();
   }
   function pointsLabel(n) { return Math.abs(n) + ' point' + (Math.abs(n) === 1 ? '' : 's'); }
@@ -771,7 +788,7 @@
       selectedPoints = 0; btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
       return;
     }
-    selectedPoints = Math.max(-99, Math.min(99, val));
+    selectedPoints = Math.max(-Cfg.maxPointsPerScan, Math.min(Cfg.maxPointsPerScan, val));
     // A number input's min/max are not enforced for typed values, and nothing
     // surfaced checkValidity(), so the field would read 5000 while the button
     // sent 99. Show the value that will actually be sent.
@@ -826,21 +843,21 @@
   async function sendRedeem() {
     if (redeemBusy) return;
     if (redeemLocked) { showToast('Already redeemed. Scan again for another.', 'error'); return; }
-    if (typeof currentPoints !== 'number' || currentPoints < 9) { showToast('Needs 9 points to redeem.', 'error'); return; }
+    if (typeof currentPoints !== 'number' || currentPoints < Cfg.redeemCost) { showToast('Needs ' + Cfg.redeemCost + ' points to redeem.', 'error'); return; }
     redeemBusy = true;
     var qr = currentQR;
     var pointsBefore = currentPoints;
     btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
     setStatus('Redeeming…', 'active');
-    var payload = { action: 'redeem_points', qr_data: qr, points_to_remove: 9, timestamp: new Date().toISOString() };
+    var payload = { action: 'redeem_points', qr_data: qr, points_to_remove: Cfg.redeemCost, timestamp: new Date().toISOString() };
     try {
       var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (resp.ok) {
         showToast('Free drink redeemed', 'gold', 3000);
-        addLog('Redeemed −9 pts', 'redeem', qr);
+        addLog('Redeemed −' + Cfg.redeemCost + ' pts', 'redeem', qr);
         setStatus('Redeemed', 'success');
         var remainingPoints = extractPoints(await readResponsePayload(resp));
-        if (remainingPoints === null) remainingPoints = pointsBefore - 9;
+        if (remainingPoints === null) remainingPoints = pointsBefore - Cfg.redeemCost;
         redeemBusy = false;
         if (qr !== currentQR) return; // another customer is on screen now
         redeemLocked = true;

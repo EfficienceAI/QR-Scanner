@@ -300,7 +300,16 @@ module.exports = async function handler(req, res) {
       });
       return respondThenRecord(
         res,
-        { ok: true, action, points: member.points, member, history },
+        // The page needs these to label its own buttons; the server still
+        // decides what a redemption costs and what it will accept.
+        {
+          ok: true,
+          action,
+          points: member.points,
+          member,
+          history,
+          settings: { redeemCost: cfg.redeemCost, maxPointsPerScan: cfg.maxPointsPerScan },
+        },
         { action: 'lookup', memberId: member.id },
         log
       );
