@@ -852,24 +852,34 @@
     var payload = { action: 'redeem_points', qr_data: qr, points_to_remove: Cfg.redeemCost, timestamp: new Date().toISOString() };
     try {
       var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      // Read the body before announcing anything: a truncated read used to
+      // print "Network error" underneath a toast that already said the drink
+      // was redeemed. sendPoints has always read first.
+      var data = await readResponsePayload(resp);
+      redeemBusy = false;
+      var stillSameCustomer = qr === currentQR;
       if (resp.ok) {
         showToast('Free drink redeemed', 'gold', 3000);
         addLog('Redeemed −' + Cfg.redeemCost + ' pts', 'redeem', qr);
         setStatus('Redeemed', 'success');
-        var remainingPoints = extractPoints(await readResponsePayload(resp));
+        if (!stillSameCustomer) return; // another customer is on screen now
+        var remainingPoints = extractPoints(data);
         if (remainingPoints === null) remainingPoints = pointsBefore - Cfg.redeemCost;
-        redeemBusy = false;
-        if (qr !== currentQR) return; // another customer is on screen now
         redeemLocked = true;
         setPointsDisplay(remainingPoints);
         btnRedeemText.textContent = 'Redeemed';
         noteRedeemNow();
       } else {
-        showToast('Could not redeem. Try again.', 'error');
+        // The server says exactly what is wrong ("Customer has 7 points, needs
+        // 9 to redeem") and returns the true balance. Both were discarded, so
+        // staff saw "Could not redeem" next to a balance that still read 9.
+        var why = (data && data.message) || 'Could not redeem. Try again.';
+        showToast(why, 'error', 3500);
         addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
-        setStatus('Could not redeem', 'error');
-        redeemBusy = false;
+        setStatus(why, 'error');
+        if (!stillSameCustomer) return;
         btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
+        if (data && typeof data.points === 'number') setPointsDisplay(data.points);
       }
     } catch (err) {
       showToast('Network error. Try again.', 'error');
