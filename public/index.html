@@ -447,6 +447,12 @@
   // under the word "Redeemed".
   let redeemLocked = false;
   let redeemBusy = false;
+  // Burning points is the one irreversible action here, and the button appears
+  // about a second into the lookup -- growing .actions by roughly 60px, so it
+  // lands where "Scan another customer" was when the thumb started moving. The
+  // first tap only arms it.
+  let redeemArmed = false;
+  let redeemArmTimer = null;
 
   // Business rules belong to the server (LOYALTY_REDEEM_COST,
   // LOYALTY_MAX_POINTS_PER_SCAN). These values are only what the page shows
@@ -596,7 +602,7 @@
     btnRedeem.hidden = !(typeof points === 'number' && points >= Cfg.redeemCost);
     if (!btnRedeem.hidden) {
       btnRedeem.disabled = redeemLocked || redeemBusy;
-      if (!redeemLocked && !redeemBusy) btnRedeemText.textContent = 'Redeem free drink';
+      if (!redeemLocked && !redeemBusy && !redeemArmed) btnRedeemText.textContent = 'Redeem free drink';
     }
   }
 
@@ -741,6 +747,7 @@
   function clearCustomer() {
     currentQR = ''; selectedPoints = 0;
     redeemLocked = false; redeemBusy = false;
+    disarmRedeem();
     document.getElementById('pointsInput').value = '';
     btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
     btnRedeem.hidden = true;
@@ -798,6 +805,7 @@
     stopScanner();
     currentQR = data; selectedPoints = 0;
     redeemLocked = false; redeemBusy = false;
+    disarmRedeem();
     resetCustomerCard(data);
     setPointsDisplay(null, 'Loading…');
     document.getElementById('pointsInput').value = '';
@@ -877,10 +885,28 @@
       btnAdd.disabled = false; btnAdd.textContent = 'Retry: ' + (adding ? 'add ' : 'remove ') + pointsLabel(n);
     }
   }
+  function disarmRedeem() {
+    clearTimeout(redeemArmTimer);
+    redeemArmTimer = null;
+    if (!redeemArmed) return;
+    redeemArmed = false;
+    if (!redeemLocked && !redeemBusy && !btnRedeem.hidden) btnRedeemText.textContent = 'Redeem free drink';
+  }
+
   async function sendRedeem() {
     if (redeemBusy) return;
     if (redeemLocked) { showToast('Already redeemed. Scan again for another.', 'error'); return; }
     if (typeof currentPoints !== 'number' || currentPoints < Cfg.redeemCost) { showToast('Needs ' + Cfg.redeemCost + ' points to redeem.', 'error'); return; }
+    if (!redeemArmed) {
+      redeemArmed = true;
+      btnRedeemText.textContent = 'Tap again to confirm';
+      clearTimeout(redeemArmTimer);
+      redeemArmTimer = setTimeout(disarmRedeem, 4000);
+      return;
+    }
+    clearTimeout(redeemArmTimer);
+    redeemArmTimer = null;
+    redeemArmed = false;
     redeemBusy = true;
     var qr = currentQR;
     var pointsBefore = currentPoints;
