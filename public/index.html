@@ -572,30 +572,20 @@
     return last;
   }
 
-  function parsePointValue(value) {
-    var parsed = parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  function extractPoints(data) {
-    if (data === null || data === undefined) return null;
-    if (typeof data === 'number') return Number.isFinite(data) ? data : null;
-    if (typeof data === 'string') {
-      var trimmed = data.trim();
-      if (!trimmed) return null;
-      if (/^-?\d+$/.test(trimmed)) return parsePointValue(trimmed);
-      try { return extractPoints(JSON.parse(trimmed)); } catch (err) { return null; }
-    }
-    if (typeof data !== 'object') return null;
-    if (Array.isArray(data)) {
-      for (var j = 0; j < data.length; j++) { var arrPoints = extractPoints(data[j]); if (arrPoints !== null) return arrPoints; }
-      return null;
-    }
-    var keys = ['points', 'current_points', 'loyalty_points', 'balance', 'point_balance', 'points_balance'];
-    for (var i = 0; i < keys.length; i++) {
-      if (data[keys[i]] !== undefined && data[keys[i]] !== null) { var value = parsePointValue(data[keys[i]]); if (value !== null) return value; }
-    }
-    return null;
+  /**
+   * The balance out of one of our own API responses.
+   *
+   * This was a recursive parser that tried six key spellings, unwrapped arrays,
+   * re-parsed strings as JSON and ran everything through parseInt. It existed
+   * because the Make.com webhook's reply shape was unpredictable, and it brought
+   * that era's quirks with it: "1e3" read as 1, "1,234" read as 1, nested
+   * objects were not searched even though arrays were, and only snake_case keys
+   * were recognised. Our own API always answers with a numeric top-level
+   * `points`, and where the balance is concerned a guess is worse than nothing.
+   */
+  function extractPoints(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    return typeof payload.points === 'number' && Number.isFinite(payload.points) ? payload.points : null;
   }
 
   function setPointsDisplay(points, message) {
