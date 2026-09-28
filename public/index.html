@@ -661,8 +661,14 @@
     renderHistory(currentHistory);
   }
 
-  /** Put the customer sheet back to empty. */
+  /** Put the customer sheet back to empty, ready for the next person. */
   function clearCustomer() {
+    // The log sits under the customer's card and every line carries their
+    // member id, so it reads as part of their record rather than a device-wide
+    // feed. Leaving it up meant the next customer was served underneath the
+    // last one's points movements. The ledger is the durable record; this is a
+    // glance at what just happened to the person in front of you.
+    logEl.innerHTML = '';
     currentQR = ''; selectedPoints = 0;
     redeemLocked = false; redeemBusy = false;
     pointsRequestId = null; redeemRequestId = null;
