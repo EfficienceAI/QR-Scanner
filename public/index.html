@@ -1152,6 +1152,7 @@
     CHECK_MS: 60 * 60 * 1000,
     IDLE_MID_CUSTOMER_MS: 90 * 1000,
     IDLE_WHILE_SCANNING_MS: 10 * 60 * 1000,
+    IDLE_MS: 30 * 1000,
     baseline: null,
     updateAvailable: false,
     lastActivity: Date.now(),
@@ -1182,7 +1183,10 @@
       if (!SelfUpdate.updateAvailable || SelfUpdate.reloading) return false;
       if (scanning) return SelfUpdate.idleFor() >= SelfUpdate.IDLE_WHILE_SCANNING_MS;
       if (resultPanel.classList.contains('active')) return SelfUpdate.idleFor() >= SelfUpdate.IDLE_MID_CUSTOMER_MS;
-      return true;
+      // With nothing on screen this returned true unconditionally, so the page
+      // could reload out from under someone who was reading the stats a second
+      // earlier. Idle has to mean idle here too.
+      return SelfUpdate.idleFor() >= SelfUpdate.IDLE_MS;
     },
     maybeReload: function () {
       if (!SelfUpdate.canReloadNow()) return;
@@ -1191,7 +1195,10 @@
       setTimeout(function () { location.reload(); }, 400);
     },
     start: function () {
-      ['click', 'touchstart', 'keydown', 'input'].forEach(function (ev) {
+      // 'scroll' was missing, which is the one gesture the stats section
+      // invites: reading the chart counted as being idle. scroll does not
+      // bubble, so the capture phase is what catches it.
+      ['click', 'touchstart', 'pointerdown', 'keydown', 'input', 'scroll', 'wheel'].forEach(function (ev) {
         document.addEventListener(ev, function () { SelfUpdate.lastActivity = Date.now(); }, { passive: true, capture: true });
       });
       document.addEventListener('visibilitychange', function () { if (!document.hidden) SelfUpdate.check(); });
