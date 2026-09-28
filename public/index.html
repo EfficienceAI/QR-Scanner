@@ -50,6 +50,8 @@
     padding: 14px 16px 48px;
     display: flex; flex-direction: column; gap: 14px;
   }
+  /* Everything above the chart fills at least one screen, so the chart only appears on scroll. */
+  .above { display: flex; flex-direction: column; gap: 14px; min-height: calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
 
   /* ---------- header ---------- */
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 6px 2px 2px; }
@@ -244,6 +246,7 @@
 <body>
 
 <div class="app">
+ <div class="above">
   <header>
     <div class="brand">
       <h1>Loyalty</h1>
@@ -317,6 +320,7 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
   </button>
   <div class="log card" id="log"></div>
+ </div>
 
   <!-- Stats: below the fold on purpose -->
   <section class="stats card" id="stats">
@@ -801,6 +805,7 @@
       var ns = 'http://www.w3.org/2000/svg';
       var el = function (tag, attrs) { var e = document.createElementNS(ns, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; };
       while (svg.firstChild) svg.removeChild(svg.firstChild);
+      Chart.tip.classList.remove('show');
       document.getElementById('chartEmpty').style.display = data.summary && data.summary.scans > 0 ? 'none' : 'grid';
 
       var max = Chart.niceMax(Math.max.apply(null, [1].concat(series.map(function (b) { return b.scans; }))));
