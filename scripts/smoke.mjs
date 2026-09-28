@@ -7,6 +7,9 @@
  * Example against a preview deployment, using a PassKit TEST member:
  *   node scripts/smoke.mjs https://qr-scanner-git-feat-passkit-direct-api-efficeicnais-projects.vercel.app 3B4tGqZ1bM9xK2pLqR8sT0 --add 1
  *
+ * The API requires the shop passcode, so set it in the environment:
+ *   STAFF_PASSCODE=<passcode> node scripts/smoke.mjs ...
+ *
  * Preview deployments on this project are behind Vercel Authentication. Either
  * log in to Vercel in the browser, or pass a Protection Bypass secret:
  *   VERCEL_BYPASS=<secret> node scripts/smoke.mjs ...
@@ -25,13 +28,23 @@ const add = addIdx >= 0 ? parseInt(flags[addIdx + 1], 10) : 0;
 const redeem = flags.includes('--redeem');
 const url = base.replace(/\/+$/, '') + '/api/loyalty';
 
+const passcode = process.env.STAFF_PASSCODE || '';
+if (!passcode) {
+  console.error('STAFF_PASSCODE is not set: every call would come back 401.');
+  console.error('usage: STAFF_PASSCODE=<passcode> node scripts/smoke.mjs <base-url> <qr-data> [--add N] [--redeem]');
+  process.exit(1);
+}
+
+/** One key per action, so a retry of the same call is not counted twice. */
+const requestId = () => crypto.randomUUID();
+
 async function call(payload) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type': 'application/json', 'X-Staff-Passcode': passcode };
   if (process.env.VERCEL_BYPASS) headers['x-vercel-protection-bypass'] = process.env.VERCEL_BYPASS;
   const resp = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ ...payload, timestamp: new Date().toISOString() }),
+    body: JSON.stringify({ ...payload, request_id: requestId(), timestamp: new Date().toISOString() }),
   });
   const text = await resp.text();
   let data;

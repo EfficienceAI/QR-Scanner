@@ -252,13 +252,15 @@ Preview deployments. Production is not affected either way.
 1. Push the branch. Vercel builds a **Preview** deployment with its own URL
    (`https://qr-scanner-git-<branch>-efficeicnais-projects.vercel.app`).
    Production keeps running the Make.com flow.
-2. Add `PASSKIT_API_KEY` and `PASSKIT_API_SECRET` to the Preview environment
-   and redeploy the preview (or push an empty commit).
+2. Add `PASSKIT_API_KEY`, `PASSKIT_API_SECRET` and `STAFF_PASSCODE` to the
+   Preview environment (plus `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` if you
+   want the counter and chart), then redeploy the preview (or push an empty
+   commit). Without `STAFF_PASSCODE` every request returns 503.
 3. Create a **test member** in PassKit so no real customer balance changes.
 4. Run the smoke script against the preview with the test member's id:
 
    ```bash
-   node scripts/smoke.mjs https://<preview-url> <member-id> --add 1
+   STAFF_PASSCODE=<passcode> node scripts/smoke.mjs https://<preview-url> <member-id> --add 1
    ```
 
    Expect `lookup_customer -> HTTP 200` with the balance, then `add_points`
