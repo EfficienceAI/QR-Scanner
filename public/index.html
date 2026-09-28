@@ -921,6 +921,9 @@
 
   // ---- Scan counter (top right) + chart, from our own ledger ----
   var fmtNum = function (n) { return Number(n).toLocaleString('en-GB'); };
+  var localDateKey = function (d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
 
   var Counter = {
     today: null, total: null,
@@ -1180,7 +1183,14 @@
       document.getElementById('rangeRow').classList.toggle('show', range === 'custom');
       if (range === 'custom') {
         var to = document.getElementById('toDate'), from = document.getElementById('fromDate');
-        if (!to.value) { var d = new Date(); to.value = d.toISOString().slice(0, 10); d.setDate(d.getDate() - 13); from.value = d.toISOString().slice(0, 10); }
+        // toISOString() is UTC, so between midnight and 01:00 BST this filled in
+        // yesterday -- on a page that is careful about the shop's clock everywhere else.
+        if (!to.value) {
+          var d = new Date();
+          to.value = localDateKey(d);
+          d.setDate(d.getDate() - 13);
+          from.value = localDateKey(d);
+        }
         return;
       }
       Chart.load(range);
