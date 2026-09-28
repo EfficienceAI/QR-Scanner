@@ -17,14 +17,39 @@ PassKit Members API  (api.pub1.passkit.io)
 ```
 
 Until this branch, the page posted the same payloads to a Make.com webhook
-and Make talked to PassKit. The function replaces Make one-for-one; the page
-is unchanged apart from the URL it posts to.
+and Make talked to PassKit. The function replaces Make one-for-one. The page
+has since grown a staff passcode, the scan counter and the chart, so it is no
+longer the old page with a new URL.
+
+The QR decoder is vendored at `public/vendor/jsQR-1.4.0.min.js` rather than
+loaded from a CDN: a page that moves customer balances should not execute a
+script a third party can change, and jsDelivr minifies on demand, which rules
+out an integrity hash.
+
+### Staff passcode
+
+`/api/loyalty` and `/api/stats` both require the shop passcode in an
+`X-Staff-Passcode` header, and **fail closed**: with `STAFF_PASSCODE` unset
+every request is refused with 503 `not_configured`. Set it before deploying,
+or the scanner will not work at all.
+
+This is not optional politeness. The deployment URL is public, member ids are
+printed on the staff screen, and `remove_points` exists, so without a gate
+anyone who saw a member id could empty that balance from a laptop.
+
+Staff enter the passcode once per device; the page keeps it in `localStorage`
+and re-asks only if the server rejects it. Use something long: ten wrong
+attempts in five minutes are throttled per instance, which slows a guessing
+run but is no substitute for a passcode that cannot be guessed. To change it,
+update the environment variable and redeploy; each device will ask once more.
+Vercel Deployment Protection in front of the whole project is complementary,
+not a replacement, since it does not cover a device that is already logged in.
 
 ### API contract
 
 | action            | request fields                      | 200 response                                  |
 | ----------------- | ----------------------------------- | --------------------------------------------- |
-| `lookup_customer` | `qr_data`                           | `{ ok, points, member, history }` (see below)   |
+| `lookup_customer` | `qr_data`                           | `{ ok, points, member, history, settings }` (see below) |
 | `add_points`      | `qr_data`, `points` (1–99)          | `{ ok, added, points }`                        |
 | `remove_points`   | `qr_data`, `points` (1–99)          | `{ ok, removed, points }` (staff correction; 409 if the balance is lower) |
 | `redeem_points`   | `qr_data`, `points_to_remove`       | `{ ok, redeemed, points }`                     |
@@ -58,7 +83,14 @@ page of 25 events, oldest first. Both stream one JSON line per event.
 `not_configured` (500).
 
 The redemption cost is decided server-side (`LOYALTY_REDEEM_COST`, default 9);
-the client's `points_to_remove` is logged but not trusted.
+the client's `points_to_remove` is logged but not trusted. `lookup_customer`
+returns `settings: { redeemCost, maxPointsPerScan }` purely so the page can
+label its own buttons; nothing about enforcement lives in the client.
+
+Every action may carry a `request_id`. It is used as an idempotency key for
+our ledger, so a staff retry after a lost response records the visit once
+instead of twice. The same id must be reused for a retry of the same action
+and a new one generated for a new action, which is what the page does.
 
 Every earn/burn is written to PassKit's member event log with
 `externalServiceId = loyalty-scanner`, so the audit trail Make used to give
@@ -77,12 +109,22 @@ into the balance store for non-legacy customers later.
   returns `today`, `total`, a zero-filled `series` (hourly for today, daily
   for week/month/short custom ranges, monthly for year/long ranges) and a
   `summary`. Buckets follow the shop's clock (`SHOP_TIMEZONE`, default
-  Europe/London, DST-aware). Cached 20 s (today) / 2 min in the function.
+  Europe/London, DST-aware). Cached 20 s (today) / 2 min in the function, as a
+  50-entry LRU. Each bucket carries `scans`, `adds`, `redeems`, `points`
+  (gross stamps) and `pointsBurned`.
+- A custom range longer than 120 days is widened to whole months, so asking
+  for 15 Jan to 20 Aug measures 1 Jan to 31 Aug. The chart footer states the
+  window actually measured. A date that does not exist (`2026-02-31`) is a
+  400, not a chart of zeros.
 - The page shows Today / All time top right and a line chart at the bottom
   with Today, Week, Month, Year and Custom views, a crosshair tooltip and a
   table view.
 - A "scan" is one customer scan (the lookup). For the one-off PassKit
   backfill, where no lookups exist, each stamp or redemption counts as one.
+  Scanning the same customer twice is two scans: the counter measures scans,
+  not distinct customers, and the top-right figure is a live increment that
+  re-syncs with the server every ten minutes and whenever the tab is
+  refocused.
 
 ### Backfilling the Make.com era
 
@@ -149,9 +191,17 @@ already stored is ignored, and a clean re-run reports `imported: 0`.
 | `SUPABASE_SERVICE_KEY` | service role key (server only; the table has no anon policies) |
 | `ADMIN_SECRET`         | only needed to run the backfill                       |
 | `SHOP_TIMEZONE`        | optional, default `Europe/London`                     |
+| `LEDGER_TIMEOUT_MS`    | optional, default 4000                                |
 
 If the ledger variables are missing the scanner still works; only the counter
-and chart show as unavailable.
+and chart show as unavailable. A slow or unhealthy ledger is never felt at the
+counter either: the API sends its response first and writes afterwards, so a
+Supabase outage costs a scan nothing.
+
+Run the migrations in `supabase/migrations` in filename order. 002 onwards
+matter: 002 lets an unknown backfill amount be stored as `null` rather than 0,
+003 renames `points_added` to `points_stamped` and rewrites the reporting
+functions so the indexes are usable, and 004 states the anon revokes.
 
 ## Self-update on the shop device
 
@@ -159,8 +209,10 @@ The scanner page stays open for days, so `public/index.html` checks for a
 new deployment itself: it hashes its own source at load, re-fetches it once
 an hour and whenever the tab becomes visible, and reloads when the hash
 changes. It never reloads mid-customer: with a customer panel open it waits
-for 90 seconds without a tap, and with the camera running it waits 10
-minutes. The status bar shows "Updating scanner..." just before the reload.
+for 90 seconds without a tap, with the camera running it waits 10 minutes,
+and with nothing on screen it still waits 30 seconds. Scrolling counts as
+activity, so reading the chart does not get interrupted. The status bar shows
+"Updating scanner..." just before the reload.
 Devices still running a build from before this feature need one manual
 refresh.
 
@@ -179,6 +231,12 @@ on this branch, set them for the **Preview** environment only.
 | `PASSKIT_PROGRAM_ID`          | no       | only with `PASSKIT_ID_MODE=externalId`                       |
 | `LOYALTY_REDEEM_COST`         | no       | default 9                                                    |
 | `LOYALTY_MAX_POINTS_PER_SCAN` | no       | default 99                                                   |
+| `STAFF_PASSCODE`              | yes      | shop passcode for the API. Unset means every request is refused |
+| `SUPABASE_URL`                | yes      | scan counter, chart and backfill                             |
+| `SUPABASE_SERVICE_KEY`        | yes      | service role key, server-side only                           |
+| `ADMIN_SECRET`                | no       | only to run the backfill                                     |
+| `SHOP_TIMEZONE`               | no       | default `Europe/London`                                      |
+| `LEDGER_TIMEOUT_MS`           | no       | default 4000                                                 |
 
 See `.env.example`.
 
