@@ -1,6 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const T = require('../lib/time');
+// The shop's clock is an environment setting, so pin it rather than inheriting
+// whatever the machine has: the suite used to fail outright wherever
+// SHOP_TIMEZONE was set to anything but London.
+process.env.SHOP_TIMEZONE = 'Europe/London';
 const { planRange, mergeSeries, summarize, buildStats } = require('../api/stats')._internals;
 
 test('London midnight handles BST, GMT and the DST switch day', () => {
@@ -99,4 +103,18 @@ test('the stats cache is capped and drops the least recently used entry', () => 
   cache.get('stale').at = Date.now() - 200000; // older than its ttl
   assert.equal(cacheGet('stale'), null, 'expired entries are dropped, not served');
   assert.equal(cache.size, 0);
+});
+
+test('the shop timezone is honoured per request, not captured at import', () => {
+  const prev = process.env.SHOP_TIMEZONE;
+  try {
+    process.env.SHOP_TIMEZONE = 'Pacific/Auckland';
+    const p = planRange('today', '', '', new Date('2026-09-28T10:00:00Z'));
+    assert.equal(p.from.toISOString(), '2026-09-27T11:00:00.000Z', 'local midnight in NZDT');
+    assert.equal(p.to.toISOString(), '2026-09-28T11:00:00.000Z');
+    process.env.SHOP_TIMEZONE = 'Europe/London';
+    assert.equal(planRange('today', '', '', new Date('2026-09-28T10:00:00Z')).from.toISOString(), '2026-09-27T23:00:00.000Z');
+  } finally {
+    process.env.SHOP_TIMEZONE = prev;
+  }
 });

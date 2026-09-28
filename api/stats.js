@@ -9,7 +9,14 @@ const ledger = require('../lib/ledger');
 const T = require('../lib/time');
 const auth = require('../lib/auth');
 
-const TZ = process.env.SHOP_TIMEZONE || 'Europe/London';
+/**
+ * The shop's clock, read per request. As a module-level constant it was
+ * captured at import, so the process had to be restarted to change it and the
+ * test suite failed outright on a machine that had SHOP_TIMEZONE set.
+ */
+function tz() {
+  return process.env.SHOP_TIMEZONE || 'Europe/London';
+}
 
 /**
  * Response cache, keyed by range + window.
@@ -68,13 +75,13 @@ function parseDate(s) {
 
 /** Work out the window and the buckets for a range, on the shop's clock. */
 function planRange(range, fromQ, toQ, now = new Date()) {
-  const today = T.localParts(now, TZ);
+  const today = T.localParts(now, tz());
   const todayKey = { y: today.y, m: today.m, d: today.d };
   const tomorrow = T.addDays(today.y, today.m, today.d, 1);
 
   if (range === 'today') {
-    const from = T.localMidnight(today.y, today.m, today.d, TZ);
-    const to = T.localMidnight(tomorrow.y, tomorrow.m, tomorrow.d, TZ);
+    const from = T.localMidnight(today.y, today.m, today.d, tz());
+    const to = T.localMidnight(tomorrow.y, tomorrow.m, tomorrow.d, tz());
     const buckets = [];
     for (let h = 0; h < 24; h += 1) buckets.push({ key: `${T.dateKey(todayKey)}T${T.pad(h)}`, label: `${T.pad(h)}:00` });
     return { range, bucket: 'hour', from, to, buckets, keyOf: (parts) => `${T.dateKey(parts)}T${T.pad(parts.h)}` };
@@ -101,8 +108,8 @@ function planRange(range, fromQ, toQ, now = new Date()) {
     }
     return {
       range, bucket: 'day',
-      from: T.localMidnight(start.y, start.m, start.d, TZ),
-      to: T.localMidnight(endExclusive.y, endExclusive.m, endExclusive.d, TZ),
+      from: T.localMidnight(start.y, start.m, start.d, tz()),
+      to: T.localMidnight(endExclusive.y, endExclusive.m, endExclusive.d, tz()),
       buckets, keyOf: (parts) => T.dateKey(parts),
     };
   }
@@ -123,8 +130,8 @@ function planMonths(fromParts, toParts, range) {
   }
   return {
     range, bucket: 'month',
-    from: T.localMidnight(start.y, start.m, 1, TZ),
-    to: T.localMidnight(endExclusive.y, endExclusive.m, 1, TZ),
+    from: T.localMidnight(start.y, start.m, 1, tz()),
+    to: T.localMidnight(endExclusive.y, endExclusive.m, 1, tz()),
     buckets, keyOf: (parts) => T.monthKey(parts),
   };
 }
@@ -132,7 +139,7 @@ function planMonths(fromParts, toParts, range) {
 function mergeSeries(plan, rows) {
   const byKey = new Map(plan.buckets.map((b) => [b.key, { ...b, scans: 0, adds: 0, redeems: 0, points: 0 }]));
   for (const r of rows) {
-    const parts = T.localParts(new Date(r.bucket_start), TZ);
+    const parts = T.localParts(new Date(r.bucket_start), tz());
     const key = plan.keyOf(parts);
     const slot = byKey.get(key);
     if (!slot) continue;
@@ -161,15 +168,15 @@ async function buildStats(range, fromQ, toQ, deps = {}) {
   const plan = planRange(range, fromQ, toQ, deps.now);
   if (plan.error) return { status: 400, body: { ok: false, error: 'bad_range', message: plan.error } };
   const [rows, totals] = await Promise.all([
-    (deps.getSeries || ledger.getSeries)(plan.bucket, plan.from.toISOString(), plan.to.toISOString(), TZ),
-    (deps.getTotals || ledger.getTotals)(TZ),
+    (deps.getSeries || ledger.getSeries)(plan.bucket, plan.from.toISOString(), plan.to.toISOString(), tz()),
+    (deps.getTotals || ledger.getTotals)(tz()),
   ]);
   const series = mergeSeries(plan, rows);
   return {
     status: 200,
     body: {
       ok: true,
-      range: plan.range, bucket: plan.bucket, tz: TZ,
+      range: plan.range, bucket: plan.bucket, tz: tz(),
       from: plan.from.toISOString(), to: plan.to.toISOString(),
       today: totals.today, total: totals.total, firstAt: totals.firstAt, liveSince: totals.liveSince,
       series, summary: summarize(series),
