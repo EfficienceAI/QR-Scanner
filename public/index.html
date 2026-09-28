@@ -250,7 +250,9 @@
   .range input { flex: 1; min-width: 0; height: 40px; border: none; border-radius: 10px; background: var(--fill); color: var(--text); padding: 0 10px; font-family: var(--font); font-size: 14px; color-scheme: dark; }
   .chart-wrap { position: relative; padding: 4px 8px 6px; transition: opacity 0.25s; }
   .chart-wrap.loading { opacity: 0.45; }
-  .chart-wrap svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  .chart-wrap svg { width: 100%; height: auto; display: block; touch-action: pan-y; border-radius: 12px; }
+  .chart-wrap svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   /* px here are viewBox units: the svg renders at about 0.73x on a phone, so
      10 used to land at roughly 7 effective pixels in the failing grey above. */
   .chart-wrap svg text { font-family: var(--font); font-size: 16px; fill: var(--text-3); }
@@ -345,7 +347,7 @@
 
   <div class="status"><div class="dot" id="statusDot"></div><span id="statusText">Ready</span></div>
 
-  <button class="disclosure" id="logToggle" onclick="toggleLog()">
+  <button class="disclosure" id="logToggle" aria-expanded="false" aria-controls="log" onclick="toggleLog()">
     Activity
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
   </button>
@@ -370,11 +372,12 @@
       <button class="btn quiet auto" style="min-height:40px;padding:0 14px;font-size:14px" onclick="applyCustom()">Go</button>
     </div>
     <div class="chart-wrap" id="chartWrap">
-      <svg id="chart" viewBox="0 0 448 220" aria-label="Scans over time"></svg>
+      <svg id="chart" viewBox="0 0 448 220" role="img" tabindex="0" aria-label="Scans over time" aria-describedby="chartHint"></svg>
+      <p class="sr-only" id="chartHint">Use the left and right arrow keys to read each point one at a time, or open the table below.</p>
       <div class="empty" id="chartEmpty" style="display:none">No scans in this period</div>
-      <div class="tip" id="tip"></div>
+      <div class="tip" id="tip" role="status" aria-live="polite"></div>
     </div>
-    <div class="foot"><span id="statsNote"></span><button type="button" onclick="toggleTable()">View as table</button></div>
+    <div class="foot"><span id="statsNote"></span><button type="button" id="tableToggle" aria-expanded="false" aria-controls="statsTable" onclick="toggleTable()">View as table</button></div>
     <table class="data" id="statsTable"><thead><tr><th scope="col">Period</th><th scope="col">Scans</th><th scope="col">Stamps</th><th scope="col">Redeems</th></tr></thead><tbody></tbody></table>
   </section>
 </div>
@@ -474,8 +477,12 @@
   }
 
   function toggleLog() {
-    logEl.classList.toggle('open');
-    document.getElementById('logToggle').classList.toggle('open', logEl.classList.contains('open'));
+    var open = logEl.classList.toggle('open');
+    var toggle = document.getElementById('logToggle');
+    toggle.classList.toggle('open', open);
+    // display:none keeps the entries out of the accessibility tree, so the
+    // button has to carry the state itself.
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
   // ---- Staff passcode -----------------------------------------------------
@@ -933,7 +940,7 @@
   };
 
   var Chart = {
-    range: 'week', loaded: false, data: null, seq: 0, hideTimer: null,
+    range: 'week', loaded: false, data: null, seq: 0, hideTimer: null, onKey: null, onBlur: null,
     svg: document.getElementById('chart'),
     wrap: document.getElementById('chartWrap'),
     tip: document.getElementById('tip'),
@@ -1061,11 +1068,12 @@
       var hit = el('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent' });
       svg.appendChild(hit);
 
-      var show = function (clientX) {
+      var focused = -1;
+      var showAt = function (i) {
+        if (!pts.length) return;
+        i = Math.max(0, Math.min(pts.length - 1, i));
+        focused = i;
         var rect = svg.getBoundingClientRect();
-        var x = ((clientX - rect.left) / rect.width) * W;
-        var i = 0, best = Infinity;
-        pts.forEach(function (p, k) { var dd = Math.abs(p.x - x); if (dd < best) { best = dd; i = k; } });
         var p = pts[i], b = series[i];
         cross.setAttribute('x1', p.x); cross.setAttribute('x2', p.x); cross.style.display = '';
         ring.setAttribute('cx', p.x); ring.setAttribute('cy', p.y); ring.style.display = '';
@@ -1089,6 +1097,13 @@
         Chart.tip.style.left = Math.max(lo, Math.min(hi, px)) + 'px';
         Chart.tip.style.top = Math.max(44, py) + 'px';
       };
+      var show = function (clientX) {
+        var rect = svg.getBoundingClientRect();
+        var x = ((clientX - rect.left) / rect.width) * W;
+        var i = 0, best = Infinity;
+        pts.forEach(function (p, k) { var dd = Math.abs(p.x - x); if (dd < best) { best = dd; i = k; } });
+        showAt(i);
+      };
       var hide = function () {
         clearTimeout(Chart.hideTimer);
         cross.style.display = 'none'; ring.style.display = 'none'; dot.style.display = 'none';
@@ -1103,6 +1118,24 @@
         clearTimeout(Chart.hideTimer);
         Chart.hideTimer = setTimeout(hide, 1500);
       });
+
+      // The tooltip was pointer-only, so the numbers behind the chart were
+      // unreachable without a mouse or a touchscreen. draw() runs on every
+      // range change and the svg outlives it, so replace the old handler.
+      if (Chart.onKey) svg.removeEventListener('keydown', Chart.onKey);
+      Chart.onKey = function (e) {
+        var step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+        if (step === undefined && e.key !== 'Home' && e.key !== 'End' && e.key !== 'Escape') return;
+        e.preventDefault();
+        if (e.key === 'Escape') { hide(); focused = -1; return; }
+        if (e.key === 'Home') return showAt(0);
+        if (e.key === 'End') return showAt(pts.length - 1);
+        showAt(focused < 0 ? (step < 0 ? pts.length - 1 : 0) : focused + step);
+      };
+      svg.addEventListener('keydown', Chart.onKey);
+      if (Chart.onBlur) svg.removeEventListener('blur', Chart.onBlur);
+      Chart.onBlur = hide;
+      svg.addEventListener('blur', Chart.onBlur);
 
       var s = data.summary || {};
       var sum = fmtNum(s.scans || 0) + ' scans';
@@ -1158,7 +1191,15 @@
     var from = document.getElementById('fromDate').value, to = document.getElementById('toDate').value;
     if (from && to) Chart.load('custom', from, to);
   }
-  function toggleTable() { document.getElementById('statsTable').classList.toggle('show'); }
+  function toggleTable() {
+    // The table is the chart's text alternative, and while it is display:none a
+    // screen reader cannot see it at all -- so say whether it is open, and name
+    // what the button controls.
+    var open = document.getElementById('statsTable').classList.toggle('show');
+    var toggle = document.getElementById('tableToggle');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.textContent = open ? 'Hide table' : 'View as table';
+  }
 
   // The passcode gates the whole page: nothing is fetched until it is entered.
   (async function boot() {
