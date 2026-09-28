@@ -757,12 +757,17 @@
   }
   function pointsLabel(n) { return Math.abs(n) + ' point' + (Math.abs(n) === 1 ? '' : 's'); }
   function onPointsInput() {
-    var val = parseInt(document.getElementById('pointsInput').value);
+    var input = document.getElementById('pointsInput');
+    var val = parseInt(input.value);
     if (!Number.isFinite(val) || val === 0) {
       selectedPoints = 0; btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
       return;
     }
     selectedPoints = Math.max(-99, Math.min(99, val));
+    // A number input's min/max are not enforced for typed values, and nothing
+    // surfaced checkValidity(), so the field would read 5000 while the button
+    // sent 99. Show the value that will actually be sent.
+    if (String(selectedPoints) !== input.value) input.value = String(selectedPoints);
     btnAdd.disabled = false;
     btnAdd.className = selectedPoints > 0 ? 'btn primary' : 'btn danger';
     btnAdd.textContent = (selectedPoints > 0 ? 'Add ' : 'Remove ') + pointsLabel(selectedPoints);
