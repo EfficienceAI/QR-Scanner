@@ -19,11 +19,21 @@ function send(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+/**
+ * A calendar date that exists, or null.
+ *
+ * Checking the ranges of the parts was not enough: 2026-02-31 passed, then
+ * addDays rolled it forward, so the query asked for 3 March while the bucket
+ * was still labelled "2026-02-31". Nothing matched that label, mergeSeries
+ * dropped the row, and a day with real traffic came back as HTTP 200 with
+ * zeros. A wrong answer where an error belongs.
+ */
 function parseDate(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
   if (!m) return null;
   const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const probe = new Date(Date.UTC(y, mo - 1, d));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() + 1 !== mo || probe.getUTCDate() !== d) return null;
   return { y, m: mo, d };
 }
 

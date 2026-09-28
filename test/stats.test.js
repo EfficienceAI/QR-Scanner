@@ -45,6 +45,17 @@ test('year = 12 month buckets; custom picks day or month buckets by span', () =>
   assert.ok(planRange('decade', '', '').error);
 });
 
+test('a date that does not exist is rejected, not silently shifted', () => {
+  // Each of these used to return 200 with a chart of zeros: the query moved to
+  // the following month while the bucket kept the impossible label.
+  for (const bad of ['2026-02-31', '2026-02-30', '2026-04-31', '2026-13-01', '2026-00-10', '2026-01-00', '2026-01-32']) {
+    assert.ok(planRange('custom', bad, '2026-09-28').error, `${bad} should be rejected as "from"`);
+    assert.ok(planRange('custom', '2026-01-01', bad).error, `${bad} should be rejected as "to"`);
+  }
+  assert.ok(!planRange('custom', '2024-02-29', '2024-03-01').error, 'a real leap day is fine');
+  assert.ok(planRange('custom', '2026-02-29', '2026-03-01').error, '2026 is not a leap year');
+});
+
 test('series rows land in the right local bucket and gaps are zero-filled', () => {
   const p = planRange('today', '', '', new Date('2026-09-28T10:00:00Z'));
   const rows = [{ bucket_start: '2026-09-28T08:00:00+00:00', scans: '7', adds: '6', redeems: '1', points_added: '9' }];
