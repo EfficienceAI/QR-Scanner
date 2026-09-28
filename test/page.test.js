@@ -74,6 +74,44 @@ test('the recessive text and the chart labels stay legible', () => {
   assert.ok(Number(size[1]) >= 14, `chart font-size ${size[1]} renders at about ${(Number(size[1]) * 0.73).toFixed(1)}px`);
 });
 
+test('the y axis does not round the peak down into the floor', () => {
+  // Pulled out of the inline script and run on its own: it is a pure function,
+  // and getting it wrong is invisible in a diff but obvious on screen.
+  const m = /niceMax: (function \(v\) \{[\s\S]*?\n {4}\})/.exec(SCRIPT);
+  assert.ok(m, 'niceMax is not in the shape this test expects');
+  const niceMax = vm.runInNewContext('(' + m[1] + ')');
+
+  assert.equal(niceMax(27), 30, 'a peak of 27 used to round to 50, so the line sat halfway down');
+  assert.equal(niceMax(7), 8);
+  assert.equal(niceMax(12), 15);
+  assert.equal(niceMax(146), 150);
+  assert.equal(niceMax(677), 800);
+
+  // Whatever the ladder, the axis must contain the data without burying it.
+  for (const peak of [1, 3, 6, 9, 17, 27, 41, 88, 130, 249, 512, 1001, 4820]) {
+    const max = niceMax(peak);
+    assert.ok(max >= peak, `${peak} would be drawn off the top of a ${max} axis`);
+    if (peak > 5) {
+      assert.ok(peak / max >= 0.6, `a peak of ${peak} only reaches ${Math.round((peak / max) * 100)}% of a ${max} axis`);
+    }
+  }
+});
+
+test('the chart box is tall enough for the axis text it now carries', () => {
+  const viewBox = /<svg id="chart" viewBox="0 0 (\d+) (\d+)"/.exec(HTML);
+  assert.ok(viewBox, 'the chart viewBox is not where this test expects it');
+  const geometry = /W: (\d+), H: (\d+), padL: (\d+), padR: (\d+), padT: (\d+), padB: (\d+)/.exec(SCRIPT);
+  assert.ok(geometry, 'the chart geometry is not where this test expects it');
+  const [, w, h, , , padT, padB] = geometry.map(Number);
+  assert.equal(w, Number(viewBox[1]), 'Chart.W and the viewBox have drifted apart');
+  assert.equal(h, Number(viewBox[2]), 'Chart.H and the viewBox have drifted apart');
+
+  // Labels are drawn at H - 9 in a 16-unit font, so the box needs room beneath
+  // the plot for the text plus its descenders.
+  assert.ok(padB >= 32, `padB ${padB} clips the descenders on the x labels`);
+  assert.ok(h - padT - padB >= 180, 'the plot area is too short for the line to say anything');
+});
+
 test('the API takes no application-level auth, which is deliberate', () => {
   // Reverted once already. If this fails, someone has added a gate to the page:
   // check that it was actually asked for (see CLAUDE.md).

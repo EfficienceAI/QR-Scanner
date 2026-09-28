@@ -369,7 +369,7 @@
       <button class="btn quiet auto" style="min-height:40px;padding:0 14px;font-size:14px" onclick="applyCustom()">Go</button>
     </div>
     <div class="chart-wrap" id="chartWrap">
-      <svg id="chart" viewBox="0 0 448 220" role="img" tabindex="0" aria-label="Scans over time" aria-describedby="chartHint"></svg>
+      <svg id="chart" viewBox="0 0 448 240" role="img" tabindex="0" aria-label="Scans over time" aria-describedby="chartHint"></svg>
       <p class="sr-only" id="chartHint">Use the left and right arrow keys to read each point one at a time, or open the table below.</p>
       <div class="empty" id="chartEmpty" style="display:none">No scans in this period</div>
       <div class="tip" id="tip" role="status" aria-live="polite"></div>
@@ -927,7 +927,7 @@
     svg: document.getElementById('chart'),
     wrap: document.getElementById('chartWrap'),
     tip: document.getElementById('tip'),
-    W: 448, H: 220, padL: 48, padR: 12, padT: 14, padB: 30,
+    W: 448, H: 240, padL: 48, padR: 12, padT: 16, padB: 34,
 
     load: async function (range, from, to) {
       var seq = ++Chart.seq;
@@ -988,7 +988,11 @@
       if (v <= 5) return 5;
       var p = Math.pow(10, Math.floor(Math.log10(v)));
       var f = v / p;
-      var nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+      // 1 / 2 / 2.5 / 5 / 10 was too coarse: a peak of 27 rounded up to 50, so
+      // the busiest day of the week only reached halfway up the chart and the
+      // whole line sat squashed along the bottom.
+      var steps = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+      var nf = steps.find(function (s) { return f <= s; }) || 10;
       return nf * p;
     },
 
@@ -1022,13 +1026,36 @@
         t.textContent = fmtNum(Math.round(max * f)); svg.appendChild(t);
       });
 
-      // x labels: about five, evenly spread
-      var step = Math.max(1, Math.round(n / 5));
-      series.forEach(function (b, i) {
-        if (i % step !== 0 && i !== n - 1) return;
-        if (i !== n - 1 && n - 1 - i < step * 0.6) return;
+      // x labels. How many fit depends on how wide they are, and the first and
+      // last are anchored to the ends of the axis rather than centred, which
+      // pushes them into their neighbours. Counting buckets instead of
+      // measuring text is what put "Tue 22" on top of "Wed 23".
+      var CHAR_W = 16 * 0.6;   // generous advance width for this font at this size
+      var LABEL_GAP = 10;
+      var spanOf = function (i) {
+        var w = String(series[i].label || '').length * CHAR_W;
+        var x = xAt(i);
+        if (i === 0) return [x, x + w];            // text-anchor: start
+        if (i === n - 1) return [x - w, x];        // text-anchor: end
+        return [x - w / 2, x + w / 2];             // text-anchor: middle
+      };
+      var shown = [];
+      var rightEdge = -Infinity;
+      for (var li = 0; li < n; li++) {
+        var span = spanOf(li);
+        if (li === n - 1) {
+          // The most recent bucket is always worth labelling, so it wins any
+          // collision with the one before it.
+          while (shown.length && span[0] < spanOf(shown[shown.length - 1])[1] + LABEL_GAP) shown.pop();
+          shown.push(li);
+        } else if (span[0] >= rightEdge + LABEL_GAP) {
+          shown.push(li);
+          rightEdge = span[1];
+        }
+      }
+      shown.forEach(function (i) {
         var t = el('text', { x: xAt(i), y: H - 9, 'text-anchor': i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle' });
-        t.textContent = b.label; svg.appendChild(t);
+        t.textContent = series[i].label; svg.appendChild(t);
       });
 
       var pts = series.map(function (b, i) { return { x: xAt(i), y: yAt(b.scans) }; });
@@ -1064,7 +1091,8 @@
         Chart.tip.innerHTML = '';
         var strong = document.createElement('b'); strong.textContent = fmtNum(b.scans) + (b.scans === 1 ? ' scan' : ' scans');
         Chart.tip.appendChild(strong);
-        Chart.tip.appendChild(document.createTextNode(b.label + ' · ' + fmtNum(b.adds) + ' stamps · ' + fmtNum(b.redeems) + ' redeems'));
+        var plural = function (count, word) { return fmtNum(count) + ' ' + word + (count === 1 ? '' : 's'); };
+        Chart.tip.appendChild(document.createTextNode(b.label + ' · ' + plural(b.adds, 'stamp') + ' · ' + plural(b.redeems, 'redeem')));
         var wrapRect = Chart.wrap.getBoundingClientRect();
         var px = rect.left - wrapRect.left + (p.x / W) * rect.width;
         var py = rect.top - wrapRect.top + (p.y / H) * rect.height;
