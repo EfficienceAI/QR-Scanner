@@ -86,11 +86,60 @@ into the balance store for non-legacy customers later.
 
 ### Backfilling the Make.com era
 
-`POST /api/admin/backfill?offset=0&pages=3` with header `x-admin-secret`
-(env `ADMIN_SECRET`) copies PassKit's programme event log into the ledger,
-only for events **before** the ledger's first live row, keyed on the PassKit
-event id so it can be re-run safely. Call it repeatedly with the returned
-`nextOffset` until `done: true`.
+`POST /api/admin/backfill` with header `x-admin-secret` (env `ADMIN_SECRET`)
+copies PassKit's programme event log into the ledger, only for events
+**before** the ledger's first live row, keyed on the PassKit event id so it
+can be re-run safely.
+
+Query parameters: `offset` (default 0), `pages` (default 3, max 10, at 1000
+events each), `dryRun=1`.
+
+**Run the dry run first.** The amount of each historical stamp is read out of
+free text that Make.com wrote, and nobody here has seen that format:
+
+```bash
+curl -sS -X POST -H "x-admin-secret: $ADMIN_SECRET"   "https://<deployment>/api/admin/backfill?dryRun=1&pages=1" | jq
+```
+
+Nothing is written. Check `samples`: each entry shows an event's `notes` and
+the amount we read from it (`read`). If `read` is `null` where the note
+clearly states an amount, fix `pointsFromEvent` in
+`api/admin/backfill.js` before importing — an unreadable amount is stored as
+`null`, which is honest but leaves `points_stamped` short.
+
+Then run for real, following `nextOffset` until `done: true`:
+
+```bash
+curl -sS -X POST -H "x-admin-secret: $ADMIN_SECRET"   "https://<deployment>/api/admin/backfill?offset=0&pages=10" | jq
+```
+
+Ten pages is 10,000 events per invocation against a 60 s `maxDuration`
+(`vercel.json`); drop `pages` if a run times out.
+
+What to expect in the response:
+
+| field                | what it means                                                            |
+| -------------------- | ------------------------------------------------------------------------ |
+| `seen`               | events read from PassKit this invocation                                  |
+| `sent`               | rows offered to the ledger                                               |
+| `imported`           | rows the ledger actually **stored**. Duplicates are ignored, so a second run over the same events reports `sent: 1000, imported: 0` — that is success, not failure |
+| `skippedAfterCutoff` | events at or after the ledger's first live row: already counted           |
+| `skippedOther`       | not a stamp or a redemption (enrolments, tier changes), or undated        |
+| `unknownPoints`      | rows stored with `points: null` because the amount could not be read      |
+| `repeated`, `order`  | paging health, see below                                                 |
+| `nextOffset`, `done` | where to resume; `done: true` means the last page was short              |
+
+Afterwards, `select count(*), source from scan_events group by source;`
+should show one `passkit-backfill` row per importable historical event, and
+`select count(*) from scan_events where points is null;` should match the
+total `unknownPoints` reported across the runs.
+
+**If the response carries a `warning`:** paging is by offset over a log that
+is still being written, so if the log shifts mid-run an event can be stepped
+over. The run reports `order` (`oldest-first` is the stable case — new events
+land at the end) and `repeated` (events served on two pages). If either says
+the window moved, re-run from `offset=0`; it costs nothing, since anything
+already stored is ignored, and a clean re-run reports `imported: 0`.
 
 ### Environment
 
