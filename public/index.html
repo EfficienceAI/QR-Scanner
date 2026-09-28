@@ -737,8 +737,25 @@
     renderHistory(currentHistory);
   }
 
+  /** Put the customer sheet back to empty. */
+  function clearCustomer() {
+    currentQR = ''; selectedPoints = 0;
+    redeemLocked = false; redeemBusy = false;
+    document.getElementById('pointsInput').value = '';
+    btnAdd.disabled = true; btnAdd.className = 'btn primary'; btnAdd.textContent = 'Add or remove points';
+    btnRedeem.hidden = true;
+    resetCustomerCard('');
+    setPointsDisplay(null, 'Scan a customer to load their balance.');
+    resultPanel.classList.remove('active');
+  }
+
   // ---- Camera ----
   async function startScanner() {
+    // Clear the previous customer before touching the camera. This used to
+    // happen after the getUserMedia and play() awaits, so a camera failure left
+    // their card, their balance and an armed redeem button live underneath a red
+    // error message.
+    clearCustomer();
     try {
       setStatus('Requesting camera…', '');
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
@@ -747,7 +764,6 @@
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       scanning = true;
       placeholder.style.display = 'none'; overlay.style.display = 'grid'; stopBtn.style.display = 'block';
-      resultPanel.classList.remove('active');
       setStatus('Point the camera at a QR code', 'active');
       tick();
     } catch (err) {
@@ -911,11 +927,7 @@
     }
   }
   function resetAndScan() {
-    currentQR = ''; selectedPoints = 0;
-    redeemLocked = false; redeemBusy = false;
-    resetCustomerCard('');
-    setPointsDisplay(null, 'Scan a customer to load their balance.');
-    resultPanel.classList.remove('active');
+    clearCustomer();
     startScanner();
   }
 
