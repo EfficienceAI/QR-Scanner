@@ -576,9 +576,15 @@
     }
   }
 
+  var lookupSeq = 0;
   async function refreshCustomerPoints(qrData) {
+    var seq = ++lookupSeq;
     setPointsDisplay(null, 'Loading…');
     var result = await lookupCustomer(qrData);
+    // Scan A (slow), then scan B (fast): A's answer must not land on B's card.
+    // It would render A's name and arm A's balance while currentQR is B, and
+    // the next redemption would debit B. Chart.load guards the same way.
+    if (seq !== lookupSeq || qrData !== currentQR) return;
     if (result.error || result.points === null) {
       setPointsDisplay(null, result.error || 'Unable to load points for this QR code.');
       custName.textContent = 'Member not found';
@@ -765,21 +771,30 @@
     if (!selectedPoints || !currentQR) return;
     var adding = selectedPoints > 0;
     var n = Math.abs(selectedPoints);
+    // Everything after the await must read these, not the globals: a scan can
+    // land mid-request and move currentQR / currentPoints underneath us.
+    var qr = currentQR;
+    var delta = selectedPoints;
+    var pointsBefore = currentPoints;
     btnAdd.disabled = true; btnAdd.textContent = 'Sending…';
     setStatus((adding ? 'Adding' : 'Removing') + ' points…', 'active');
-    var payload = { action: adding ? 'add_points' : 'remove_points', qr_data: currentQR, points: n, timestamp: new Date().toISOString() };
+    var payload = { action: adding ? 'add_points' : 'remove_points', qr_data: qr, points: n, timestamp: new Date().toISOString() };
     try {
       var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       var data = await readResponsePayload(resp);
+      var stillSameCustomer = qr === currentQR;
       if (resp.ok) {
         showToast((adding ? '+' : '−') + n + ' point' + (n > 1 ? 's' : '') + (adding ? ' added' : ' removed'), 'success');
-        addLog((adding ? '+' : '−') + n + ' pts', adding ? 'add' : 'remove', currentQR);
+        addLog((adding ? '+' : '−') + n + ' pts', adding ? 'add' : 'remove', qr);
         setStatus(adding ? 'Points added' : 'Points removed', 'success');
+        if (!stillSameCustomer) return; // another customer is on screen now
         btnAdd.textContent = adding ? 'Added' : 'Removed';
         if (adding) noteVisitNow();
         var updatedPoints = extractPoints(data);
         if (updatedPoints !== null) setPointsDisplay(updatedPoints);
-        else if (typeof currentPoints === 'number') setPointsDisplay(currentPoints + selectedPoints);
+        else if (typeof pointsBefore === 'number') setPointsDisplay(pointsBefore + delta);
+      } else if (!stillSameCustomer) {
+        addLog('Failed ' + (adding ? '+' : '−') + n, 'fail', 'HTTP ' + resp.status);
       } else {
         var why = (data && data.message) || ('Could not ' + (adding ? 'add' : 'remove') + ' points. Try again.');
         showToast(why, 'error', 3500);
@@ -800,18 +815,22 @@
     if (redeemLocked) { showToast('Already redeemed. Scan again for another.', 'error'); return; }
     if (typeof currentPoints !== 'number' || currentPoints < 9) { showToast('Needs 9 points to redeem.', 'error'); return; }
     redeemBusy = true;
+    var qr = currentQR;
+    var pointsBefore = currentPoints;
     btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
     setStatus('Redeeming…', 'active');
-    var payload = { action: 'redeem_points', qr_data: currentQR, points_to_remove: 9, timestamp: new Date().toISOString() };
+    var payload = { action: 'redeem_points', qr_data: qr, points_to_remove: 9, timestamp: new Date().toISOString() };
     try {
       var resp = await apiFetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (resp.ok) {
         showToast('Free drink redeemed', 'gold', 3000);
-        addLog('Redeemed −9 pts', 'redeem', currentQR);
+        addLog('Redeemed −9 pts', 'redeem', qr);
         setStatus('Redeemed', 'success');
         var remainingPoints = extractPoints(await readResponsePayload(resp));
-        if (remainingPoints === null) remainingPoints = currentPoints - 9;
-        redeemLocked = true; redeemBusy = false;
+        if (remainingPoints === null) remainingPoints = pointsBefore - 9;
+        redeemBusy = false;
+        if (qr !== currentQR) return; // another customer is on screen now
+        redeemLocked = true;
         setPointsDisplay(remainingPoints);
         btnRedeemText.textContent = 'Redeemed';
         noteRedeemNow();
