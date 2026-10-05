@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Join La Bottega Milanese loyalty</title>
+<style>
+  :root {
+    --bg: #000; --card: #1c1c1e; --fill: rgba(120, 120, 128, 0.18); --fill-strong: rgba(120, 120, 128, 0.32);
+    --sep: rgba(84, 84, 88, 0.55); --text: #f5f5f7; --text-2: rgba(235, 235, 245, 0.62); --text-3: rgba(235, 235, 245, 0.4);
+    --accent: #0a84ff; --accent-ink: #fff; --green: #30d158; --red: #ff453a; --radius: 22px; --radius-sm: 14px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg); }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100dvh; display: flex; flex-direction: column; align-items: center; -webkit-font-smoothing: antialiased; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .app { width: 100%; max-width: 480px; padding: 28px 20px 48px; display: flex; flex-direction: column; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .mark { width: 44px; height: 44px; border-radius: 12px; background: var(--accent); display: grid; place-items: center; font-weight: 800; font-size: 20px; color: #fff; letter-spacing: -0.02em; }
+  .brand p { font-size: 13px; color: var(--text-2); font-weight: 500; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+  .lead { font-size: 15px; color: var(--text-2); line-height: 1.45; }
+  .card { background: var(--card); border: 1px solid var(--sep); border-radius: var(--radius); overflow: hidden; }
+  .field { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; }
+  .field + .field { border-top: 1px solid var(--sep); }
+  label { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  input[type="text"], input[type="email"], input[type="tel"] {
+    width: 100%; border: none; outline: none; background: transparent; color: var(--text);
+    font-family: var(--font); font-size: 17px; padding: 2px 0;
+  }
+  input::placeholder { color: var(--text-3); }
+  .field.bad label { color: var(--red); }
+  .err { font-size: 12px; color: var(--red); display: none; }
+  .field.bad .err { display: block; }
+  .consent { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-top: 1px solid var(--sep); font-size: 13px; color: var(--text-2); line-height: 1.4; }
+  .consent input { width: 20px; height: 20px; margin-top: 1px; accent-color: var(--accent); flex-shrink: 0; }
+  .btn { border: none; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font); font-size: 17px; font-weight: 600; min-height: 52px; padding: 0 22px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px; transition: transform 0.12s ease, opacity 0.2s; text-decoration: none; }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  .btn.quiet { background: var(--fill); color: var(--text); }
+  .btn.wallet { background: #000; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); min-height: 56px; font-size: 18px; }
+  .btn.wallet svg { width: 30px; height: 30px; }
+  .fine { font-size: 12px; color: var(--text-3); line-height: 1.5; text-align: center; }
+  .fine a { color: var(--text-2); }
+  .done { display: none; flex-direction: column; gap: 14px; animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .done.show { display: flex; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  .hello { padding: 18px 16px; }
+  .hello .name { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .hello .sub { font-size: 14px; color: var(--text-2); margin-top: 4px; line-height: 1.4; }
+  .qr { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 18px 16px; border-top: 1px solid var(--sep); }
+  .qr.show { display: flex; }
+  .qr img { width: 180px; height: 180px; border-radius: 12px; background: #fff; padding: 8px; }
+  .qr p { font-size: 13px; color: var(--text-2); text-align: center; line-height: 1.4; }
+  .note { padding: 14px 16px; border-top: 1px solid var(--sep); font-size: 13px; color: var(--text-2); line-height: 1.45; }
+  .alert { display: none; padding: 12px 16px; border-radius: var(--radius-sm); background: rgba(255, 69, 58, 0.14); color: var(--red); font-size: 14px; font-weight: 500; }
+  .alert.show { display: block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><div class="mark" aria-hidden="true">L</div><div><p>La Bottega Milanese</p></div></div>
+
+  <form id="joinForm" novalidate>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <h1>Join the loyalty club</h1>
+        <p class="lead" style="margin-top:8px">A stamp with every coffee. Nine stamps, and the next one's on us. Your card lives in Apple Wallet.</p>
+      </div>
+      <div class="alert" id="alert"></div>
+      <div class="card">
+        <div class="field" id="f-name"><label for="full_name">Full name</label><input type="text" id="full_name" name="full_name" autocomplete="name" placeholder="Your name" required><div class="err">Please enter your full name.</div></div>
+        <div class="field" id="f-email"><label for="email">Email</label><input type="email" id="email" name="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required><div class="err">Please enter a valid email address.</div></div>
+        <div class="field" id="f-phone"><label for="phone">Mobile</label><input type="tel" id="phone" name="phone" autocomplete="tel" inputmode="tel" placeholder="07700 900000" required><div class="err">Please enter a valid mobile number.</div></div>
+        <label class="consent"><input type="checkbox" id="consent" name="consent"><span>Keep me posted about offers and news from La Bottega Milanese. <span style="color:var(--text-3)">(optional)</span></span></label>
+      </div>
+      <button class="btn primary" id="submitBtn" type="submit">Get my pass</button>
+      <p class="fine">By joining you agree to our <a href="#" id="termsLink">terms</a> and <a href="#" id="privacyLink">privacy notice</a>. <!-- PLACEHOLDER: link the real terms and privacy pages --></p>
+    </div>
+  </form>
+
+  <div class="done" id="done">
+    <div class="card">
+      <div class="hello"><div class="name" id="helloName">You're in</div><div class="sub" id="helloSub">Add your card to Apple Wallet and show it at the counter.</div></div>
+      <div class="qr" id="qrBox"><img id="qrImg" alt="QR code linking to your pass"><p>Not on an iPhone right now? Scan this with your iPhone camera to add the pass.</p></div>
+      <div class="note" id="androidNote" style="display:none">Android: Google Wallet support is coming. For now, keep your phone number handy and staff can find you.</div>
+    </div>
+    <a class="btn wallet" id="walletBtn" href="#">
+      <svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="6" y="10" width="36" height="28" rx="6" fill="#fff"/><rect x="6" y="16" width="36" height="7" fill="#e53935"/><rect x="6" y="23" width="36" height="7" fill="#fdd835"/><rect x="6" y="30" width="36" height="8" rx="2" fill="#43a047"/><path d="M30 24h12v14a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6V24h12a6 6 0 0 0 12 0z" fill="#1e88e5"/></svg>
+      <span>Add to Apple Wallet</span>
+    </a>
+    <p class="fine" id="passHint">Opens the Wallet app on iPhone. <!-- PLACEHOLDER: replace the button artwork with Apple's official "Add to Apple Wallet" badge (developer.apple.com/wallet/add-to-apple-wallet-guidelines/) --></p>
+  </div>
+</div>
+
+<script>
+  var form = document.getElementById('joinForm');
+  var submitBtn = document.getElementById('submitBtn');
+  var alertEl = document.getElementById('alert');
+  var isAndroid = /Android/i.test(navigator.userAgent);
+  var isIOS = !isAndroid && (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+  function showAlert(msg) { alertEl.textContent = msg; alertEl.classList.toggle('show', Boolean(msg)); }
+  function mark(field, bad, msg) {
+    var el = document.getElementById(field);
+    el.classList.toggle('bad', bad);
+    if (msg) el.querySelector('.err').textContent = msg;
+  }
+  function validate() {
+    var ok = true;
+    var name = document.getElementById('full_name').value.trim();
+    var email = document.getElementById('email').value.trim();
+    var phone = document.getElementById('phone').value.replace(/[\s().-]/g, '');
+    mark('f-name', name.length < 2); if (name.length < 2) ok = false;
+    var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email); mark('f-email', !emailOk); if (!emailOk) ok = false;
+    var phoneOk = /^(\+|00)?\d{7,15}$/.test(phone); mark('f-phone', !phoneOk); if (!phoneOk) ok = false;
+    return ok;
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    showAlert('');
+    if (!validate()) return;
+    submitBtn.disabled = true; submitBtn.textContent = 'One moment…';
+    try {
+      var resp = await fetch('/api/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: document.getElementById('full_name').value,
+          email: document.getElementById('email').value,
+          phone: document.getElementById('phone').value,
+          consent: document.getElementById('consent').checked
+        })
+      });
+      var data = null;
+      try { data = await resp.json(); } catch (err) { data = null; }
+      if (!resp.ok || !data || !data.ok) {
+        if (data && data.errors) {
+          if (data.errors.full_name) mark('f-name', true, data.errors.full_name);
+          if (data.errors.email) mark('f-email', true, data.errors.email);
+          if (data.errors.phone) mark('f-phone', true, data.errors.phone);
+        }
+        showAlert((data && data.message) || 'Something went wrong. Please try again.');
+        submitBtn.disabled = false; submitBtn.textContent = 'Get my pass';
+        return;
+      }
+      showDone(data);
+    } catch (err) {
+      showAlert('Network error. Please check your connection and try again.');
+      submitBtn.disabled = false; submitBtn.textContent = 'Get my pass';
+    }
+  });
+
+  function showDone(data) {
+    var first = String((data.member && data.member.name) || '').split(' ')[0];
+    document.getElementById('helloName').textContent = data.existing ? ('Welcome back' + (first ? ', ' + first : '')) : ('You’re in' + (first ? ', ' + first : ''));
+    document.getElementById('helloSub').textContent = data.existing
+      ? 'You already have a card. Add it to Apple Wallet again below if you need it.'
+      : 'Add your card to Apple Wallet and show it at the counter to collect stamps.';
+    var walletBtn = document.getElementById('walletBtn');
+    walletBtn.href = data.passUrl;
+    var qrBox = document.getElementById('qrBox');
+    if (!isIOS) {
+      document.getElementById('qrImg').src = data.passUrl + '&qr=1';
+      qrBox.classList.add('show');
+    }
+    document.getElementById('androidNote').style.display = isAndroid ? 'block' : 'none';
+    form.style.display = 'none';
+    document.getElementById('done').classList.add('show');
+    window.scrollTo(0, 0);
+  }
+</script>
+</body>
+</html>

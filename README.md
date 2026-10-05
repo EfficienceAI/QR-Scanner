@@ -322,3 +322,14 @@ add a provider with the same three calls backed by a Supabase table and
 switch `api/loyalty.js` to it. The pass in the customer's wallet is the
 larger job: PassKit also issues and refreshes the Apple/Google Wallet pass,
 so replacing it means generating and signing passes ourselves.
+
+
+## Native passes (the PassKit replacement, not yet wired to the scanner)
+
+A separate set of files lets a customer join on our own page
+(`/join`), get a pass **we** sign for Apple Wallet with the QR built in, and
+have it kept up to date through Apple's pass web service. See
+`docs/NATIVE-PASSES.md` for the architecture, every placeholder you need to
+fill in (Apple Team ID, Pass Type ID, certificate, artwork, domain), and how
+to test it. `npm run dev` runs the whole flow locally with a throwaway
+certificate.
