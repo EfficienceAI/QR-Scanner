@@ -46,9 +46,12 @@ def fit_strip(src, scale):
 def stamp_row(strip, filled, scale, bean):
     """A stamp-card grid over the photo: five circles on the top row, four
     centred beneath. Empty stamps are a barely-there outline; a filled stamp
-    is a cream disc with the bean. No dark band: the photo stays as shot."""
+    is a cream disc with the bean. No dark band: the photo stays as shot.
+    At zero points nothing is drawn at all."""
     w, h = strip.size
     out = strip.copy()
+    if filled <= 0:
+        return out  # no points yet: just the photo; the grid appears with the first point
     diameter = int(h * 0.27)
     ring = max(1, round(1.6 * scale))
     margin_x = int(w * 0.07)
