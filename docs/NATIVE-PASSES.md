@@ -66,10 +66,11 @@ separate push key is needed).
 
 Apple's store card layout only has image slots for the logo, the icon and
 the strip across the top; nothing can be drawn between the name and the QR.
-So by default (`PASS_STAMP_STYLE=text`) the nine stamps are a text row of
-filled and empty circles on the row under the photo, next to the name, and
-the photo stays clean. With `PASS_STAMP_STYLE=strip` the stamps are drawn
-as beans across the bottom of the photo instead:
+By default (`PASS_STAMP_STYLE=strip`) the nine stamps are drawn on the
+photo as a five-over-four grid: empty stamps are a barely visible outline,
+and a bean appears in each as points are earned. With
+`PASS_STAMP_STYLE=text` the stamps are instead a text row of filled and
+empty circles on the row under the photo, next to the name:
 
 The strip across the card is then one of ten pre-rendered images per theme,
 `strip-0` to `strip-9`, with that many beans filled. The pass picks the one

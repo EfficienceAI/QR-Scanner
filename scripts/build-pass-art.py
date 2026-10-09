@@ -14,10 +14,10 @@ but Wallet renders this card's strip at the taller size PassKit uses, and
 a 123-point image gets scaled up and cropped. The source strips are
 1125 x 432, which is exactly 375 x 144 at 3x, so nothing is cropped.
 
-Two strip sets per theme: strip-plain (the photo alone, used when the
-stamps are shown as a text row under the photo) and strip-N (N beans
-filled in a row across the bottom of the photo, used when PASS_STAMP_STYLE
-is "strip").
+Two strip sets per theme: strip-N (the default: a five-over-four stamp
+grid on the photo, N beans filled, empty stamps as faint outlines) and
+strip-plain (the photo alone, used when PASS_STAMP_STYLE is "text" and the
+stamps are a text row under the photo).
 """
 from PIL import Image, ImageDraw, ImageFilter
 import os, sys
@@ -44,37 +44,32 @@ def fit_strip(src, scale):
     return im.crop((0, top, w, top + h))
 
 def stamp_row(strip, filled, scale, bean):
-    """Draw the nine circles over the bottom of the strip."""
+    """A stamp-card grid over the photo: five circles on the top row, four
+    centred beneath. Empty stamps are a barely-there outline; a filled stamp
+    is a cream disc with the bean. No dark band: the photo stays as shot."""
     w, h = strip.size
     out = strip.copy()
-    # soft band so the circles read over any photo
-    band = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(band)
-    band_top = int(h * 0.60)
-    for y in range(band_top, h):
-        a = int(170 * ((y - band_top) / (h - band_top)) ** 0.9)
-        bd.line([(0, y), (w, y)], fill=(0, 0, 0, a))
-    out = Image.alpha_composite(out, band)
-
-    d = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    dd = ImageDraw.Draw(d)
-    diameter = int(h * 0.20)
-    margin = int(w * 0.055)
-    pitch = (w - 2 * margin - diameter) / (STAMPS - 1)
-    cy = int(h * 0.83)
-    ring = max(1, round(1.5 * scale))
-    bean_img = bean.resize((int(diameter * 0.62), int(diameter * 0.62)), Image.LANCZOS)
-    for i in range(STAMPS):
-        cx = int(margin + diameter / 2 + i * pitch)
-        box = (cx - diameter // 2, cy - diameter // 2, cx + diameter // 2, cy + diameter // 2)
+    diameter = int(h * 0.27)
+    ring = max(1, round(1.6 * scale))
+    margin_x = int(w * 0.07)
+    pitch = (w - 2 * margin_x - diameter) / 4          # five across
+    rows = [
+        [(margin_x + diameter / 2 + i * pitch, h * 0.30) for i in range(5)],
+        [(margin_x + diameter / 2 + (i + 0.5) * pitch, h * 0.72) for i in range(4)],
+    ]
+    centres = rows[0] + rows[1]
+    layer = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(layer)
+    for i, (cx, cy) in enumerate(centres):
+        box = (int(cx - diameter / 2), int(cy - diameter / 2), int(cx + diameter / 2), int(cy + diameter / 2))
         if i < filled:
-            dd.ellipse(box, fill=(245, 236, 222, 255), outline=(245, 236, 222, 255), width=ring)
+            dd.ellipse(box, fill=(245, 236, 222, 232), outline=(245, 236, 222, 255), width=ring)
         else:
-            dd.ellipse(box, fill=(255, 255, 255, 38), outline=(255, 255, 255, 170), width=ring)
-    out = Image.alpha_composite(out, d)
-    for i in range(filled):
-        cx = int(margin + diameter / 2 + i * pitch)
-        out.alpha_composite(bean_img, (cx - bean_img.width // 2, cy - bean_img.height // 2))
+            dd.ellipse(box, fill=(255, 255, 255, 8), outline=(255, 255, 255, 46), width=ring)
+    out = Image.alpha_composite(out, layer)
+    bean_img = bean.resize((int(diameter * 0.62), int(diameter * 0.62)), Image.LANCZOS)
+    for i, (cx, cy) in enumerate(centres[:filled]):
+        out.alpha_composite(bean_img, (int(cx - bean_img.width / 2), int(cy - bean_img.height / 2)))
     return out
 
 def trim(im):

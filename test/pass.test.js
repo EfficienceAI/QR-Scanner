@@ -25,12 +25,12 @@ test('pass.json carries the identifiers, the QR and the stamp copy', () => {
   assert.equal(j.barcodes[0].format, 'PKBarcodeFormatQR');
   assert.equal(j.storeCard.headerFields[0].label, 'POINTS');
   assert.equal(j.storeCard.headerFields[0].value, 4);
-  assert.deepEqual(j.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['NAME', 'Yunus Tufail']]);
-  assert.deepEqual(j.storeCard.auxiliaryFields[0], { key: 'stamps', label: 'STAMPS', value: '\u25CF \u25CF \u25CF \u25CF \u25CB \u25CB \u25CB \u25CB \u25CB', textAlignment: 'PKTextAlignmentRight' });
+  assert.deepEqual(j.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['FIRST NAME', 'Yunus'], ['LAST NAME', 'Tufail']], 'default: beans on the photo, names below');
+  assert.equal(j.storeCard.auxiliaryFields, undefined);
+  const asText = passLib.buildPassJson(member, passLib.settings({ ...env, PASS_STAMP_STYLE: 'text' }));
+  assert.deepEqual(asText.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['NAME', 'Yunus Tufail']]);
+  assert.deepEqual(asText.storeCard.auxiliaryFields[0], { key: 'stamps', label: 'STAMPS', value: '\u25CF \u25CF \u25CF \u25CF \u25CB \u25CB \u25CB \u25CB \u25CB', textAlignment: 'PKTextAlignmentRight' });
   assert.equal(passLib.stampsText(12, 9), '\u25CF \u25CF \u25CF \u25CF \u25CF \u25CF \u25CF \u25CF \u25CF');
-  const onPhoto = passLib.buildPassJson(member, passLib.settings({ ...env, PASS_STAMP_STYLE: 'strip' }));
-  assert.deepEqual(onPhoto.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['FIRST NAME', 'Yunus'], ['LAST NAME', 'Tufail']]);
-  assert.equal(onPhoto.storeCard.auxiliaryFields, undefined);
   assert.equal(j.logoText, undefined, 'no logo text: the logo image carries the wordmark');
   assert.equal(passLib.buildPassJson(member, passLib.settings({ ...env, PASS_LOGO_TEXT: 'La Bottega' })).logoText, 'La Bottega');
   assert.equal(j.backgroundColor, 'rgb(0, 0, 0)');
