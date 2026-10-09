@@ -12,13 +12,17 @@ add stamps or redeem a free drink. The redeem cost is a server setting
 Deployed on Vercel as a static page plus Node functions. There is no
 framework, no bundler and no runtime dependencies.
 
-Two systems hold data:
+Three systems hold data (the third is new and not yet wired to the scanner):
 
 - **PassKit** owns members and balances. Every balance shown or changed comes
   from a PassKit call.
 - **Supabase** holds our own scan ledger (`scan_events`), which is the source
   of truth for "how many scans" and the foundation for moving off PassKit
   later. It is analytics, never a balance.
+- **Supabase `members`** holds *native* members (joined on `/join`, holding a
+  pass we signed). Their points live here. The scanner does not read it yet;
+  the QR on those passes is `LBM:<uuid>` so the two kinds can never be
+  confused with a PassKit id.
 
 ## Layout
 
@@ -33,6 +37,18 @@ Two systems hold data:
 | `lib/ledger.js` | PostgREST calls against `scan_events` with the service key |
 | `lib/time.js` | Timezone helpers, so buckets follow the shop's clock through DST |
 | `lib/auth.js` | The admin secret gate for the backfill |
+| `public/join/index.html` | The signup page for native members (replaces the Carrd page) |
+| `api/join.js` | Creates a native member and answers with the pass download link |
+| `api/pass/[serial].js` | The signed `.pkpass` (and an SVG QR of its link, `?qr=1`) |
+| `api/wallet/v1/**` | Apple's pass web service: device registration, "what changed", latest pass, logs |
+| `lib/db.js` | General PostgREST client (service key) for the members tables |
+| `lib/members.js` | Native members: validation, tokens, QR message `LBM:<uuid>`, points RPC, Wallet registrations |
+| `lib/pass.js` | Builds `pass.json` from a member and signs the `.pkpass` (passkit-generator) |
+| `lib/apns.js` | Tells Wallet a pass changed (HTTP/2 push with the Pass Type ID certificate) |
+| `lib/wallet.js` | Shared helpers for the web service routes (ApplePass auth) |
+| `pass-template/` | Pass artwork; the files there are labelled placeholders |
+| `certs/AppleWWDRCAG4.pem` | Apple's public WWDR intermediate, needed to sign passes |
+| `docs/NATIVE-PASSES.md` | Setup guide and the list of placeholders for the native pass system |
 | `supabase/migrations/*.sql` | Table, indexes, RLS and the two RPCs the stats read |
 | `test/*.test.js` | `node --test`, no test framework |
 | `vercel.json` | `outputDirectory: public`, an **empty** `buildCommand` (which also suppresses framework detection), and 60s `maxDuration` for the backfill |
@@ -54,6 +70,8 @@ Two systems hold data:
   (Vercel Deployment Protection, or simply who has the URL), so do not add a
   passcode here without being asked. `/api/admin/backfill` is the exception
   and keeps its `ADMIN_SECRET`.
+- **The native pass system is not integrated with the scanner yet** (by
+  decision). Do not route `LBM:` QR codes in `api/loyalty.js` until asked.
 - **`SUPABASE_SERVICE_KEY` is server-side only.** It bypasses RLS; the page
   must never see it.
 - **Amounts that cannot be read are `null`, not `0`.** The backfill parses

@@ -2,6 +2,27 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "functions": {
-    "api/admin/backfill.js": { "maxDuration": 60 }
-  }
+    "api/admin/backfill.js": {
+      "maxDuration": 60
+    },
+    "api/pass/*.js": {
+      "includeFiles": "{pass-template,certs}/**"
+    },
+    "api/wallet/v1/passes/*/*.js": {
+      "includeFiles": "{pass-template,certs}/**"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "lbm-loyalty.vercel.app"
+        }
+      ],
+      "destination": "/join/",
+      "permanent": false
+    }
+  ]
 }

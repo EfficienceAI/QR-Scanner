@@ -23,6 +23,7 @@
  */
 
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -174,6 +175,68 @@ function mockTotals({ tz }) {
   }];
 }
 
+// In-memory native members, for the signup page and the pass web service.
+const NATIVE = [];
+const REGS = [];
+function postgrestFilter(url) {
+  const out = [];
+  for (const [k, v] of url.searchParams.entries()) {
+    const m = /^eq\.(.*)$/.exec(v);
+    if (k !== 'select' && k !== 'limit' && k !== 'on_conflict' && m) out.push([k, m[1]]);
+  }
+  return (row) => out.every(([k, v]) => String(row[k] ?? '') === v);
+}
+function mockMembersApi(p, url, init, body, prefer, reply) {
+  const method = (init.method || 'GET').toUpperCase();
+  const where = postgrestFilter(url);
+  if (p.startsWith('/rest/v1/rpc/adjust_member_points')) {
+    const m = NATIVE.find((r) => r.id === body.p_member && r.status === 'active');
+    if (!m) return reply(400, { message: 'member_not_found' });
+    if (m.points + body.p_delta < 0) return reply(400, { message: 'insufficient_points' });
+    m.points += body.p_delta; m.updated_at = m.pass_updated_at = new Date().toISOString();
+    if (body.p_delta > 0) m.last_visit_at = m.updated_at;
+    return reply(200, [{ points: m.points }]);
+  }
+  if (p.startsWith('/rest/v1/rpc/pass_updated_serials')) {
+    const rows = REGS.filter((r) => r.device_library_id === body.p_device)
+      .map((r) => NATIVE.find((m) => m.pass_serial === r.pass_serial)).filter(Boolean)
+      .filter((m) => !body.p_since || m.pass_updated_at > body.p_since)
+      .map((m) => ({ serial: m.pass_serial, updated_at: m.pass_updated_at }));
+    return reply(200, rows);
+  }
+  const table = p.startsWith('/rest/v1/members') ? NATIVE : REGS;
+  if (method === 'GET') {
+    const limit = Number(url.searchParams.get('limit')) || Infinity;
+    return reply(200, table.filter(where).slice(0, limit));
+  }
+  if (method === 'POST') {
+    const rows = (Array.isArray(body) ? body : [body]).map((r) => {
+      if (table === NATIVE) {
+        const email_norm = r.email ? String(r.email).trim().toLowerCase() : null;
+        if (NATIVE.some((x) => x.email_norm && x.email_norm === email_norm)) return { __dupe: true };
+        const now = new Date().toISOString();
+        return { id: crypto.randomUUID(), points: 0, status: 'active', source: 'join', consent_marketing: false, created_at: now, updated_at: now, pass_updated_at: now, last_visit_at: null, ...r, email_norm };
+      }
+      const existing = REGS.find((x) => x.device_library_id === r.device_library_id && x.pass_serial === r.pass_serial);
+      if (existing) { existing.push_token = r.push_token; return existing; }
+      return { created_at: new Date().toISOString(), ...r };
+    });
+    if (rows.some((r) => r.__dupe)) return reply(409, { message: 'duplicate key value violates unique constraint "members_email_norm_idx"' });
+    for (const r of rows) if (!table.includes(r)) table.push(r);
+    return reply(201, prefer.includes('return=representation') ? rows : '');
+  }
+  if (method === 'PATCH') {
+    const hit = table.filter(where);
+    for (const r of hit) Object.assign(r, body);
+    return reply(200, hit);
+  }
+  if (method === 'DELETE') {
+    for (let i = table.length - 1; i >= 0; i -= 1) if (where(table[i])) table.splice(i, 1);
+    return reply(204, '');
+  }
+  return reply(405, { message: 'mock: unsupported' });
+}
+
 /** Stands in for both PassKit and PostgREST. */
 function installMockFetch() {
   const reply = (status, body) => ({ ok: status < 400, status, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) });
@@ -199,6 +262,11 @@ function installMockFetch() {
         stored.push({ id: LEDGER.length });
       }
       return reply(201, prefer.includes('return=representation') ? stored : '');
+    }
+
+    // ---- PostgREST: native members + Wallet registrations (the pass system)
+    if (p.startsWith('/rest/v1/members') || p.startsWith('/rest/v1/pass_registrations') || p.startsWith('/rest/v1/rpc/adjust_member_points') || p.startsWith('/rest/v1/rpc/pass_updated_serials')) {
+      return mockMembersApi(p, url, init, body, prefer, reply);
     }
 
     // ---- PassKit
@@ -245,6 +313,17 @@ if (MOCK) {
   process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://mock.supabase.co';
   process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'mock-service-key';
   process.env.ADMIN_SECRET = process.env.ADMIN_SECRET || 'mock-admin-secret';
+  // Pass signing with a throwaway certificate: Wallet will refuse the result,
+  // but the whole build/sign/zip path runs for real.
+  if (!process.env.PASS_CERT_PEM_B64) {
+    const { makeSelfSignedPassCert } = require(path.join(ROOT, 'scripts', 'selfsigned-cert.js'));
+    const c = makeSelfSignedPassCert();
+    process.env.APPLE_TEAM_ID = process.env.APPLE_TEAM_ID || c.teamId;
+    process.env.PASS_TYPE_ID = process.env.PASS_TYPE_ID || c.passTypeId;
+    process.env.PASS_CERT_PEM_B64 = Buffer.from(c.certPem).toString('base64');
+    process.env.PASS_KEY_PEM_B64 = Buffer.from(c.keyPem).toString('base64');
+  }
+  process.env.APNS_ENABLED = process.env.APNS_ENABLED || 'false';
   installMockFetch();
 }
 
@@ -255,6 +334,34 @@ const ROUTES = {
   '/api/stats': 'api/stats.js',
   '/api/admin/backfill': 'api/admin/backfill.js',
 };
+
+// Everything else under api/ is matched Vercel-style: [name].js segments are
+// parameters, and they land on req.query like they do in production.
+function listApiFiles(dir, prefix = []) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) out.push(...listApiFiles(path.join(dir, entry.name), [...prefix, entry.name]));
+    else if (entry.name.endsWith('.js')) out.push({ file: path.join('api', ...prefix, entry.name), segments: [...prefix, entry.name.slice(0, -3)] });
+  }
+  return out;
+}
+const API_FILES = listApiFiles(path.join(ROOT, 'api'));
+function matchApi(pathname) {
+  if (!pathname.startsWith('/api/')) return null;
+  const parts = pathname.slice(5).split('/').filter(Boolean).map(decodeURIComponent);
+  for (const f of API_FILES) {
+    if (f.segments.length !== parts.length) continue;
+    const params = {};
+    let ok = true;
+    for (let i = 0; i < parts.length; i += 1) {
+      const seg = f.segments[i];
+      if (seg.startsWith('[') && seg.endsWith(']')) params[seg.slice(1, -1)] = parts[i];
+      else if (seg !== parts[i]) { ok = false; break; }
+    }
+    if (ok) return { file: f.file, params };
+  }
+  return null;
+}
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -277,8 +384,10 @@ const server = http.createServer(async (req, res) => {
   const started = Date.now();
   if (!SELFTEST) res.on('finish', () => console.log(`${req.method} ${req.url} -> ${res.statusCode} (${Date.now() - started}ms)`));
 
-  const route = ROUTES[pathname];
+  const matched = ROUTES[pathname] ? { file: ROUTES[pathname], params: {} } : matchApi(pathname);
+  const route = matched && matched.file;
   if (route) {
+    req.query = { ...matched.params, ...Object.fromEntries(new URL(req.url, 'http://localhost').searchParams.entries()) };
     const raw = await readBody(req);
     // Vercel parses a JSON body onto req.body; the handlers expect that.
     if (raw && String(req.headers['content-type'] || '').includes('json')) {
@@ -301,8 +410,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static, out of public/. No path escapes it.
+  // Directory paths serve their index.html, as Vercel does (/join/ -> public/join/index.html).
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  const file = path.join(PUBLIC, rel);
+  let file = path.join(PUBLIC, rel);
+  if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
   if (!file.startsWith(PUBLIC)) {
     res.statusCode = 403;
     return res.end('forbidden');
@@ -435,6 +546,7 @@ async function selftest(base) {
   return failures.length === 0;
 }
 
+server.on('listening', () => { if (!process.env.PUBLIC_BASE_URL) process.env.PUBLIC_BASE_URL = `http://localhost:${server.address().port}`; });
 server.listen(PORT, async () => {
   if (SELFTEST) {
     const base = `http://localhost:${server.address().port}`;
