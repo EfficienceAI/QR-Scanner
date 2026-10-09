@@ -37,7 +37,8 @@ whenever a member's points change.
 | `PUBLIC_BASE_URL` | the public https origin the passes will call back to | e.g. `https://loyalty.labottegamilanese.com`. Must be publicly reachable: Wallet calls it from the customer's phone with no cookies, so a Vercel preview behind Deployment Protection will **not** work for the update service. |
 | `PASS_ORG_NAME`, `PASS_DESCRIPTION`, `PASS_LOGO_TEXT` | wording on the pass | defaults are La Bottega Milanese |
 | `PASS_BACKGROUND_COLOR`, `PASS_FOREGROUND_COLOR`, `PASS_LABEL_COLOR` | pass colours as `rgb(r, g, b)` | defaults: near-black, white, grey |
-| `pass-template/*.png` | your pass artwork | icon 29×29 (@2x 58, @3x 87), logo 160×50 (@2x/@3x), strip 375×123 (@2x 750×246, @3x 1125×369). The files there now are labelled placeholders. |
+| `pass-art/*.png` | the source artwork: `strip-default.png`, `strip-christmas.png` (1125×432, PassKit's size), `logo-white.png`, `logo-on-black.png`, `bean.png` | `python3 scripts/build-pass-art.py` regenerates everything in `pass-template/` from these |
+| `PASS_THEME` | `default`, `christmas`, or `auto` (Christmas 1 Dec to 2 Jan) | after changing it, `POST /api/admin/refresh { all: true }` so every phone re-downloads |
 | `public/join/index.html` | terms and privacy links, the official Apple "Add to Apple Wallet" badge | marked `PLACEHOLDER` in the file |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | the La Bottega Supabase project | run `supabase/migrations/005_members_and_passes.sql` |
 
@@ -60,6 +61,25 @@ base64 -i pass-key.pem  | tr -d '\n'    # -> PASS_KEY_PEM_B64
 The same certificate and key are used for the APNs push that tells Wallet a
 pass changed (Apple requires the Pass Type ID certificate for that; no
 separate push key is needed).
+
+## The stamp row
+
+The strip across the card is one of ten pre-rendered images per theme,
+`strip-0` to `strip-9`, with that many beans filled. The pass picks the one
+matching the balance capped at the reward cost, so a balance of 10 or 100
+shows all nine beans until a redemption brings it down. Changing a stamp
+therefore changes the picture, delivered through the same refresh path as
+the number.
+
+`scripts/build-pass-art.py` (Python, Pillow) draws the row over the source
+photo: a soft dark band so it reads over any image, nine circles, filled ones
+in cream with the bean. It also makes the logo (crest + wordmark, white) and
+the icon (the crest alone on black) at every size Apple wants.
+
+## Admin endpoints (header `x-admin-secret`)
+
+- `POST /api/admin/points { serial | email, delta }` adjusts a native member's balance and refreshes their pass.
+- `POST /api/admin/refresh { serial } | { all: true, offset }` re-pushes passes without touching balances, for artwork or theme changes.
 
 ## How a pass is built
 
