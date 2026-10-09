@@ -64,7 +64,14 @@ separate push key is needed).
 
 ## The stamp row
 
-The strip across the card is one of ten pre-rendered images per theme,
+Apple's store card layout only has image slots for the logo, the icon and
+the strip across the top; nothing can be drawn between the name and the QR.
+So by default (`PASS_STAMP_STYLE=text`) the nine stamps are a text row of
+filled and empty circles on the row under the photo, next to the name, and
+the photo stays clean. With `PASS_STAMP_STYLE=strip` the stamps are drawn
+as beans across the bottom of the photo instead:
+
+The strip across the card is then one of ten pre-rendered images per theme,
 `strip-0` to `strip-9`, with that many beans filled. The pass picks the one
 matching the balance capped at the reward cost, so a balance of 10 or 100
 shows all nine beans until a redemption brings it down. Changing a stamp

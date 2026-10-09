@@ -9,10 +9,15 @@ Outputs, per theme (pass-template/<theme>/):
 and shared (pass-template/common/):
   logo.png / @2x / @3x   icon.png / @2x / @3x
 
-The strip is Apple's storeCard size, 375 x 123 points. The source strips
-are 1125 x 432 (PassKit's size), so they are scaled to width and centre-
-cropped. The stamp row - nine circles, N of them holding a coffee bean -
-sits in a soft dark band across the bottom so it reads over the photo.
+The strip is 375 x 144 points: Apple documents 375 x 123 for store cards,
+but Wallet renders this card's strip at the taller size PassKit uses, and
+a 123-point image gets scaled up and cropped. The source strips are
+1125 x 432, which is exactly 375 x 144 at 3x, so nothing is cropped.
+
+Two strip sets per theme: strip-plain (the photo alone, used when the
+stamps are shown as a text row under the photo) and strip-N (N beans
+filled in a row across the bottom of the photo, used when PASS_STAMP_STYLE
+is "strip").
 """
 from PIL import Image, ImageDraw, ImageFilter
 import os, sys
@@ -24,7 +29,7 @@ STAMPS = 9
 THEMES = {'default': 'strip-default.png', 'christmas': 'strip-christmas.png'}
 
 # Apple point sizes
-STRIP_PT = (375, 123)
+STRIP_PT = (375, 144)
 LOGO_PT = 50          # square logo, height-limited (Apple allows up to 160 x 50)
 ICON_PT = 29
 
@@ -45,7 +50,7 @@ def stamp_row(strip, filled, scale, bean):
     # soft band so the circles read over any photo
     band = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     bd = ImageDraw.Draw(band)
-    band_top = int(h * 0.56)
+    band_top = int(h * 0.60)
     for y in range(band_top, h):
         a = int(170 * ((y - band_top) / (h - band_top)) ** 0.9)
         bd.line([(0, y), (w, y)], fill=(0, 0, 0, a))
@@ -53,10 +58,10 @@ def stamp_row(strip, filled, scale, bean):
 
     d = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     dd = ImageDraw.Draw(d)
-    diameter = int(h * 0.23)
+    diameter = int(h * 0.20)
     margin = int(w * 0.055)
     pitch = (w - 2 * margin - diameter) / (STAMPS - 1)
-    cy = int(h * 0.80)
+    cy = int(h * 0.83)
     ring = max(1, round(1.5 * scale))
     bean_img = bean.resize((int(diameter * 0.62), int(diameter * 0.62)), Image.LANCZOS)
     for i in range(STAMPS):
@@ -111,9 +116,10 @@ def main():
         os.makedirs(tdir, exist_ok=True)
         for scale, suffix in ((1, ''), (2, '@2x'), (3, '@3x')):
             base = fit_strip(src, scale)
+            base.convert('RGB').save(os.path.join(tdir, f'strip-plain{suffix}.png'), optimize=True)
             for n in range(STAMPS + 1):
                 stamp_row(base, n, scale, bean).convert('RGB').save(os.path.join(tdir, f'strip-{n}{suffix}.png'), optimize=True)
-        print(f'{theme}: {3 * (STAMPS + 1)} strip images')
+        print(f'{theme}: {3 * (STAMPS + 2)} strip images')
     print('common: logo + icon at 3 sizes')
 
 if __name__ == '__main__':

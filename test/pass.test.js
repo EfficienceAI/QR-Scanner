@@ -25,7 +25,12 @@ test('pass.json carries the identifiers, the QR and the stamp copy', () => {
   assert.equal(j.barcodes[0].format, 'PKBarcodeFormatQR');
   assert.equal(j.storeCard.headerFields[0].label, 'POINTS');
   assert.equal(j.storeCard.headerFields[0].value, 4);
-  assert.deepEqual(j.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['FIRST NAME', 'Yunus'], ['LAST NAME', 'Tufail']]);
+  assert.deepEqual(j.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['NAME', 'Yunus Tufail']]);
+  assert.deepEqual(j.storeCard.auxiliaryFields[0], { key: 'stamps', label: 'STAMPS', value: '\u25CF \u25CF \u25CF \u25CF \u25CB \u25CB \u25CB \u25CB \u25CB', textAlignment: 'PKTextAlignmentRight' });
+  assert.equal(passLib.stampsText(12, 9), '\u25CF \u25CF \u25CF \u25CF \u25CF \u25CF \u25CF \u25CF \u25CF');
+  const onPhoto = passLib.buildPassJson(member, passLib.settings({ ...env, PASS_STAMP_STYLE: 'strip' }));
+  assert.deepEqual(onPhoto.storeCard.secondaryFields.map((f) => [f.label, f.value]), [['FIRST NAME', 'Yunus'], ['LAST NAME', 'Tufail']]);
+  assert.equal(onPhoto.storeCard.auxiliaryFields, undefined);
   assert.equal(j.logoText, undefined, 'no logo text: the logo image carries the wordmark');
   assert.equal(passLib.buildPassJson(member, passLib.settings({ ...env, PASS_LOGO_TEXT: 'La Bottega' })).logoText, 'La Bottega');
   assert.equal(j.backgroundColor, 'rgb(0, 0, 0)');
@@ -46,6 +51,9 @@ test('the strip shows the balance as filled beans, capped at the reward cost', (
   assert.equal(passLib.filledStamps(-2, 9), 0);
   const T = passLib._internals.templateImages;
   const five = T('default', 5), nine = T('default', 9), xmas = T('christmas', 0), full = T('default', 9);
+  const plain = T('default', 5, 'text');
+  assert.notEqual(plain['strip@3x.png'].toString('base64'), five['strip@3x.png'].toString('base64'), 'text style uses the plain photo');
+  assert.equal(T('default', 2, 'text')['strip@3x.png'].toString('base64'), plain['strip@3x.png'].toString('base64'), 'plain photo does not vary with the balance');
   for (const f of ['icon.png', 'icon@2x.png', 'icon@3x.png', 'logo.png', 'logo@3x.png', 'strip.png', 'strip@2x.png', 'strip@3x.png']) assert.ok(five[f], `${f} present`);
   assert.notEqual(five['strip@3x.png'].toString('base64'), nine['strip@3x.png'].toString('base64'), 'different bean counts are different images');
   assert.equal(nine['strip@3x.png'].toString('base64'), full['strip@3x.png'].toString('base64'));
