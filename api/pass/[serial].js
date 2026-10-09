@@ -42,7 +42,7 @@ function createHandler(deps = {}) {
       const buf = await (deps.buildPkpass || passLib.buildPkpass)(member);
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-      res.setHeader('Content-Disposition', 'attachment; filename="la-bottega-milanese.pkpass"');
+      res.setHeader('Content-Disposition', 'inline; filename="la-bottega-milanese.pkpass"');
       res.setHeader('Last-Modified', new Date(member.pass_updated_at || Date.now()).toUTCString());
       res.setHeader('Cache-Control', 'no-store');
       return res.end(buf);
