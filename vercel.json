@@ -10,6 +10,9 @@
     },
     "api/wallet/v1/passes/*/*.js": {
       "includeFiles": "{pass-template,certs}/**"
+    },
+    "api/admin/import.js": {
+      "maxDuration": 60
     }
   },
   "redirects": [

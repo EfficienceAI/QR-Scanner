@@ -16,9 +16,7 @@
   html { background: var(--bg); }
   body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100dvh; display: flex; flex-direction: column; align-items: center; -webkit-font-smoothing: antialiased; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
   .app { width: 100%; max-width: 480px; padding: 28px 20px 48px; display: flex; flex-direction: column; gap: 18px; }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .mark { width: 44px; height: 44px; border-radius: 12px; background: var(--accent); display: grid; place-items: center; font-weight: 800; font-size: 20px; color: #fff; letter-spacing: -0.02em; }
-  .brand p { font-size: 13px; color: var(--text-2); font-weight: 500; }
+  .brand { display: flex; align-items: center; justify-content: center; padding: 6px 0 2px; }
   h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
   .lead { font-size: 15px; color: var(--text-2); line-height: 1.45; }
   .card { background: var(--card); border: 1px solid var(--sep); border-radius: var(--radius); overflow: hidden; }
@@ -61,7 +59,7 @@
 </head>
 <body>
 <div class="app">
-  <div class="brand"><div class="mark" aria-hidden="true">L</div><div><p>La Bottega Milanese</p></div></div>
+  <div class="brand"><img src="/join/logo-white.png" alt="La Bottega Milanese" width="96" height="96" style="width:96px;height:auto"></div>
 
   <form id="joinForm" novalidate>
     <div style="display:flex;flex-direction:column;gap:14px">
