@@ -8,7 +8,8 @@
  * person.forename, person.surname, person.emailAddress, person.mobileNumber,
  * members.member.points). Nothing is sent to any customer; rows land in our
  * members table with source = passkit-import. Safe to re-run: re-runs update
- * points and never duplicate.
+ * points and never duplicate. A dry run cannot see an email shared by two
+ * members in different batches; the real run reports it.
  */
 import fs from 'node:fs';
 
@@ -55,15 +56,15 @@ let members = records.map((r) => {
 if (only) members = members.filter((m) => m.passkit_member_id === only);
 console.log(`${records.length} rows in the file, ${members.length} to send${dryRun ? ' (dry run)' : ''}`);
 
-const totals = { received: 0, created: 0, updated: 0, linked: 0, skipped: 0, problems: [] };
+const totals = { received: 0, created: 0, updated: 0, unchanged: 0, linked: 0, skipped: 0, email_dropped: 0, problems: [] };
 for (let i = 0; i < members.length; i += 500) {
   const batch = members.slice(i, i + 500);
   const resp = await fetch(`${base}/api/admin/import`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-secret': secret }, body: JSON.stringify({ members: batch, dry_run: dryRun }) });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.ok) { console.error(`batch ${i / 500 + 1}: HTTP ${resp.status}`, JSON.stringify(data).slice(0, 500)); process.exit(2); }
-  for (const k of ['received', 'created', 'updated', 'linked', 'skipped']) totals[k] += data[k] || 0;
+  for (const k of ['received', 'created', 'updated', 'unchanged', 'linked', 'skipped', 'email_dropped']) totals[k] += data[k] || 0;
   totals.problems.push(...(data.problems || []));
-  console.log(`batch ${i / 500 + 1}: created ${data.created}, updated ${data.updated}, linked ${data.linked}, skipped ${data.skipped}`);
+  console.log(`batch ${i / 500 + 1}: created ${data.created}, updated ${data.updated}, unchanged ${data.unchanged}, linked ${data.linked}, skipped ${data.skipped}${data.email_dropped ? `, email dropped ${data.email_dropped}` : ''}`);
 }
 console.log('TOTAL', JSON.stringify({ ...totals, problems: totals.problems.length }));
 if (totals.problems.length) console.log('first problems:', JSON.stringify(totals.problems.slice(0, 10)));
