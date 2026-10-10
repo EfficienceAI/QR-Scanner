@@ -2,8 +2,11 @@
 
 This is the system that lets a customer join on our own page and add a pass
 we signed ourselves to Apple Wallet, with no PassKit, no Make.com, no SMS and
-no email in the loop. It is a separate, self-contained set of files; the
-scanner (`api/loyalty.js`) still talks to PassKit and is not wired to it yet.
+no email in the loop. The scanner (`api/loyalty.js`) serves both kinds of
+pass: a QR that starts with `LBM:` is one of ours and is answered from the
+`members` table (`lib/native-scan.js`); anything else is a PassKit pass and
+takes the unchanged PassKit path. Nothing here is deployed to the live
+scanner project; it runs on the separate `lbm-loyalty` deployment.
 
 ```
 /join (public/join/index.html)
@@ -88,6 +91,24 @@ the icon (the crest alone on black) at every size Apple wants.
 
 - `POST /api/admin/points { serial | email, delta }` adjusts a native member's balance and refreshes their pass.
 - `POST /api/admin/refresh { serial } | { all: true, offset }` re-pushes passes without touching balances, for artwork or theme changes.
+- `POST /api/admin/import { members: [...], dry_run }` brings PassKit members into `members` (up to 500 a call). Keyed on the PassKit member id, so re-running updates points and never duplicates; someone who already joined natively with the same email is linked, not duplicated. `scripts/import-passkit.mjs` feeds it from PassKit's CSV export.
+
+## The scanner and the overlap period
+
+- **Native scan** (`LBM:<member uuid>`): balance read and changed atomically in
+  `members` (`adjust_member_points`), visit history from our own `scan_events`
+  rows, and after a change the phone is told to re-fetch the pass over APNs.
+  Same discipline as the PassKit path: reply first, record and push after.
+- **PassKit scan of an imported member**: PassKit still answers, and then the
+  imported row is set to the balance PassKit reported (`mirrorLegacy`), so the
+  pass they later upgrade to already shows the right stamps. Skipped silently
+  where the members database is not configured (the live scanner project).
+- **In-place upgrade**: PassKit's passes use the member id as the pass serial
+  (checked on a real pass: `serialNumber` = `members.member.id`, same Pass
+  Type ID as ours). Imported members keep that id as `pass_serial`, so when
+  they open their personal link Wallet replaces the PassKit card rather than
+  adding a second one. An imported member's history keeps their PassKit-era
+  rows because `listMemberEvents` is asked for both ids.
 
 ## How a pass is built
 
@@ -115,12 +136,14 @@ refuse the file, which is expected).
 
 ## What is deliberately not done yet
 
-- **The scanner is not wired to native members.** Scanning one of these
-  passes today gives "member not found" because `api/loyalty.js` still asks
-  PassKit. The integration is a later, separate change: detect the `LBM:`
-  prefix, read and adjust points in `members`, then call
-  `pushPassUpdate(serial)` so the pass refreshes.
+- **Nothing is on the live scanner project.** `qr-scanner` (production) has
+  no Supabase variables and no native code; `lbm-loyalty` has no PassKit
+  keys. The switch-over is the moment one deployment gets both sets.
+- **No customer has been imported or contacted.** The import is run
+  deliberately, by hand, per batch; the "tap to upgrade" message goes out
+  through PassKit only when the switch is on.
 - **Google Wallet.** PassKit issues Android passes too; this phase is Apple
   only. The signup page tells Android visitors it is coming.
-- **Importing existing PassKit members** into `members` (keeping their old
-  pass working through the legacy path until they re-join).
+- **Native changes are not written back to PassKit.** Once a member has
+  upgraded, their PassKit record goes stale; PassKit is being retired, so
+  that is accepted.

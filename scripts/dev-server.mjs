@@ -181,10 +181,12 @@ const REGS = [];
 function postgrestFilter(url) {
   const out = [];
   for (const [k, v] of url.searchParams.entries()) {
-    const m = /^eq\.(.*)$/.exec(v);
-    if (k !== 'select' && k !== 'limit' && k !== 'on_conflict' && m) out.push([k, m[1]]);
+    if (k === 'select' || k === 'limit' || k === 'on_conflict' || k === 'order') continue;
+    let m;
+    if ((m = /^eq\.(.*)$/.exec(v))) out.push([k, (row) => String(row[k] ?? '') === m[1]]);
+    else if ((m = /^in\.\((.*)\)$/.exec(v))) { const set = m[1].split(',').map((s) => s.replace(/^"|"$/g, '')); out.push([k, (row) => set.includes(String(row[k] ?? ''))]); }
   }
-  return (row) => out.every(([k, v]) => String(row[k] ?? '') === v);
+  return (row) => out.every(([, test]) => test(row));
 }
 function mockMembersApi(p, url, init, body, prefer, reply) {
   const method = (init.method || 'GET').toUpperCase();
@@ -251,6 +253,17 @@ function installMockFetch() {
     // ---- PostgREST
     if (p.startsWith('/rest/v1/rpc/scan_series')) return reply(200, mockSeries(body));
     if (p.startsWith('/rest/v1/rpc/scan_totals')) return reply(200, mockTotals(body));
+    if (p.startsWith('/rest/v1/scan_events') && (init.method || 'GET').toUpperCase() === 'GET') {
+      // The native scanner's history read: member_id=in.("a","b"), newest first.
+      const inList = /^in\.\((.*)\)$/.exec(url.searchParams.get('member_id') || '');
+      const ids = inList ? inList[1].split(',').map((s) => s.replace(/^"|"$/g, '')) : null;
+      const limit = Number(url.searchParams.get('limit')) || Infinity;
+      const rows = LEDGER.filter((r) => !ids || ids.includes(String(r.member_id)))
+        .sort((a, b) => String(b.occurred_at || '').localeCompare(String(a.occurred_at || '')))
+        .slice(0, limit)
+        .map((r) => ({ action: r.action, points: r.points, occurred_at: r.occurred_at }));
+      return reply(200, rows);
+    }
     if (p.startsWith('/rest/v1/scan_events')) {
       const rows = Array.isArray(body) ? body : [body];
       const stored = [];
@@ -333,6 +346,8 @@ const ROUTES = {
   '/api/loyalty': 'api/loyalty.js',
   '/api/stats': 'api/stats.js',
   '/api/admin/backfill': 'api/admin/backfill.js',
+  '/api/admin/import': 'api/admin/import.js',
+  '/api/admin/member': 'api/admin/member.js',
 };
 
 // Everything else under api/ is matched Vercel-style: [name].js segments are
@@ -537,6 +552,47 @@ async function selftest(base) {
   check('an unreadable amount is null, not 0', blank && blank.read === null, JSON.stringify(blank));
   check('unreadable amounts are counted and surfaced', dryBody.unknownPoints > 0, 'unknownPoints=' + dryBody.unknownPoints);
   check('O3: a shifting log is reported', typeof dryBody.order === 'string' && typeof dryBody.repeated === 'number');
+
+  console.log('\n  Native passes: join, scan, stamp, redeem');
+  const admin = { 'x-admin-secret': process.env.ADMIN_SECRET, 'content-type': 'application/json' };
+  const joinRes = await realFetch(base + '/api/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ full_name: 'Self Test', email: 'selftest@example.com', phone: '07700 900123', consent_marketing: true }) });
+  const joined = await joinRes.json();
+  check('a customer can join', joinRes.status === 201 && joined.ok === true, 'HTTP ' + joinRes.status + ' ' + JSON.stringify(joined).slice(0, 120));
+  const native = NATIVE.find((m) => m.email_norm === 'selftest@example.com');
+  check('the member row exists', Boolean(native));
+  const pk = native ? await realFetch(base + joined.passUrl) : null;
+  check('their pass is served', pk && pk.status === 200 && String(pk.headers.get('content-type')).includes('vnd.apple.pkpass'), pk && ('HTTP ' + pk.status + ' ' + pk.headers.get('content-type')));
+  const nq = native ? `LBM:${native.id}` : 'LBM:missing';
+  const nl = await post({ action: 'lookup_customer', qr_data: nq, request_id: 'native-1' });
+  check('a native QR is looked up without PassKit', nl.status === 200 && nl.body.member && nl.body.member.native === true, 'HTTP ' + nl.status + ' ' + JSON.stringify(nl.body).slice(0, 160));
+  check('a new member reads as their first coffee', nl.body.points === 0 && nl.body.history && nl.body.history.firstVisit === true, JSON.stringify(nl.body.history));
+  const na = await post({ action: 'add_points', qr_data: nq, points: 3, request_id: 'native-2' });
+  check('stamps land in the members table', na.status === 200 && na.body.points === 3 && native.points === 3, JSON.stringify(na.body));
+  const nl2 = await post({ action: 'lookup_customer', qr_data: nq, request_id: 'native-3' });
+  check('the stamp is now a visit in our own history', nl2.body.history.visits === 1 && nl2.body.history.firstVisit === false && Boolean(nl2.body.history.lastVisit), JSON.stringify(nl2.body.history));
+  const nr = await post({ action: 'redeem_points', qr_data: nq, points_to_remove: 9, request_id: 'native-4' });
+  check('a redemption below the cost is refused with the true balance', nr.status === 409 && nr.body.points === 3 && nr.body.required === 9, JSON.stringify(nr.body));
+  await post({ action: 'add_points', qr_data: nq, points: 6, request_id: 'native-5' });
+  const nr2 = await post({ action: 'redeem_points', qr_data: nq, points_to_remove: 9, request_id: 'native-6' });
+  check('a redemption at the cost takes exactly the cost', nr2.status === 200 && nr2.body.points === 0 && native.points === 0, JSON.stringify(nr2.body));
+  const nm = await post({ action: 'remove_points', qr_data: nq, points: 1, request_id: 'native-7' });
+  check('nothing goes below zero', nm.status === 409, 'HTTP ' + nm.status);
+  const ghost = await post({ action: 'lookup_customer', qr_data: 'LBM:00000000-0000-0000-0000-000000000000', request_id: 'native-8' });
+  check('an unknown native QR is a 404', ghost.status === 404 && ghost.body.error === 'member_not_found', 'HTTP ' + ghost.status);
+
+  console.log('\n  The overlap: PassKit scans mirrored onto imported members');
+  const imp = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: [{ passkit_member_id: 'M1000000000', full_name: 'Imported Person', email: 'imported@example.com', phone: '', points: 4 }] }) });
+  const impBody = await imp.json();
+  check('a PassKit member can be imported', imp.status === 200 && impBody.created === 1, 'HTTP ' + imp.status + ' ' + JSON.stringify(impBody).slice(0, 160));
+  const imported = NATIVE.find((m) => m.passkit_member_id === 'M1000000000');
+  check('the imported serial is the PassKit id, so the new pass replaces the old one in place', imported && imported.pass_serial === 'M1000000000');
+  const legacy = await post({ action: 'add_points', qr_data: 'M1000000000', points: 1, request_id: 'overlap-1' });
+  check('a PassKit scan still answers from PassKit', legacy.status === 200 && typeof legacy.body.points === 'number', JSON.stringify(legacy.body));
+  await new Promise((r) => setTimeout(r, 50));
+  check('and the imported copy now matches PassKit', imported && imported.points === legacy.body.points && Boolean(imported.last_visit_at), `ours=${imported && imported.points} passkit=${legacy.body.points}`);
+  const again = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: [{ passkit_member_id: 'M1000000000', full_name: 'Imported Person', email: 'imported@example.com', points: 2 }] }) });
+  const againBody = await again.json();
+  check('re-importing updates rather than duplicates', again.status === 200 && againBody.updated === 1 && againBody.created === 0 && imported.points === 2, JSON.stringify(againBody));
 
   console.log(`\n  ${passed} passed, ${failures.length} failed\n`);
   if (failures.length) {

@@ -14,6 +14,8 @@
 
 const passkit = require('../lib/passkit');
 const ledger = require('../lib/ledger');
+const members = require('../lib/members');
+const nativeScan = require('../lib/native-scan');
 
 const SOURCE_TAG = 'loyalty-scanner';
 
@@ -278,6 +280,11 @@ module.exports = async function handler(req, res) {
   const log = (extra) =>
     console.log(JSON.stringify({ src: SOURCE_TAG, action, ref, ms: Date.now() - started, ...extra }));
 
+  // Our own passes carry "LBM:<member id>" in the QR and never touch
+  // PassKit; everything else is a PassKit pass and takes the path below.
+  const nativeId = members.memberIdFromQr(body.qr_data);
+  if (nativeId) return nativeScan.handle(nativeId, { action, body, cfg, res, requestId, log });
+
   if (!ref) {
     return send(res, 400, { ok: false, error: 'missing_qr_data', message: 'Scan a customer QR code first.' });
   }
@@ -329,12 +336,15 @@ module.exports = async function handler(req, res) {
       const result = await passkit.earnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ added: points, points: balance });
-      return respondThenRecord(
-        res,
-        { ok: true, action, added: points, points: balance },
-        { action: 'add', memberId: ref.id || result.id || null, points, requestId },
-        log
-      );
+      return Promise.all([
+        respondThenRecord(
+          res,
+          { ok: true, action, added: points, points: balance },
+          { action: 'add', memberId: ref.id || result.id || null, points, requestId },
+          log
+        ),
+        nativeScan.mirrorLegacy({ passkitMemberId: ref.id || result.id || null, balance, visited: true, log }),
+      ]);
     }
 
     if (action === 'remove_points') {
@@ -360,12 +370,15 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ removed: points, points: balance });
-      return respondThenRecord(
-        res,
-        { ok: true, action, removed: points, points: balance },
-        { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
-        log
-      );
+      return Promise.all([
+        respondThenRecord(
+          res,
+          { ok: true, action, removed: points, points: balance },
+          { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
+          log
+        ),
+        nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance, log }),
+      ]);
     }
 
     if (action === 'redeem_points') {
@@ -386,12 +399,15 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, cost, eventDetails(action, cost));
       const balance = num(result.points);
       log({ redeemed: cost, requested, points: balance });
-      return respondThenRecord(
-        res,
-        { ok: true, action, redeemed: cost, points: balance },
-        { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
-        log
-      );
+      return Promise.all([
+        respondThenRecord(
+          res,
+          { ok: true, action, redeemed: cost, points: balance },
+          { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
+          log
+        ),
+        nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance, log }),
+      ]);
     }
 
     return send(res, 400, {
