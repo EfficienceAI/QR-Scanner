@@ -38,7 +38,7 @@ whenever a member's points change.
 | `PASS_ORG_NAME`, `PASS_DESCRIPTION`, `PASS_LOGO_TEXT` | wording on the pass | defaults are La Bottega Milanese |
 | `PASS_BACKGROUND_COLOR`, `PASS_FOREGROUND_COLOR`, `PASS_LABEL_COLOR` | pass colours as `rgb(r, g, b)` | defaults: near-black, white, grey |
 | `pass-art/*.png` | the source artwork: `strip-default.png`, `strip-christmas.png` (1125×432, PassKit's size), `logo-white.png`, `logo-on-black.png`, `bean.png` | `python3 scripts/build-pass-art.py` regenerates everything in `pass-template/` from these |
-| `PASS_THEME` | `default`, `christmas`, or `auto` (Christmas 1 Dec to 2 Jan) | after changing it, `POST /api/admin/refresh { all: true }` so every phone re-downloads |
+| `PASS_THEME` | `default`, `christmas`, or `auto` (Christmas 1 to 31 December) | after changing it, `POST /api/admin/refresh { all: true }` so every phone re-downloads |
 | `public/join/index.html` | terms and privacy links, the official Apple "Add to Apple Wallet" badge | marked `PLACEHOLDER` in the file |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | the La Bottega Supabase project | run `supabase/migrations/005_members_and_passes.sql` |
 

@@ -66,8 +66,9 @@ test('theme resolution: explicit, auto by date, unknown', () => {
   assert.equal(passLib.resolveTheme('DEFAULT'), 'default');
   assert.equal(passLib.resolveTheme('rubbish'), 'default');
   assert.equal(passLib.resolveTheme('auto', new Date('2026-12-15T10:00:00Z')), 'christmas');
-  assert.equal(passLib.resolveTheme('auto', new Date('2027-01-02T10:00:00Z')), 'christmas');
-  assert.equal(passLib.resolveTheme('auto', new Date('2027-01-03T10:00:00Z')), 'default');
+  assert.equal(passLib.resolveTheme('auto', new Date('2026-12-01T00:30:00Z')), 'christmas');
+  assert.equal(passLib.resolveTheme('auto', new Date('2026-12-31T23:30:00Z')), 'christmas');
+  assert.equal(passLib.resolveTheme('auto', new Date('2027-01-01T00:30:00Z')), 'default', 'back to normal on 1 January');
   assert.equal(passLib.resolveTheme('auto', new Date('2026-10-09T10:00:00Z')), 'default');
   assert.equal(passLib.settings({ PASS_THEME: 'christmas' }).theme, 'christmas');
 });
