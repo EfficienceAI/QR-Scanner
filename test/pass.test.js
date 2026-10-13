@@ -109,3 +109,13 @@ test('a pass signs, zips and carries a manifest that matches its files', async (
 test('buildPkpass refuses without certificates', async () => {
   await assert.rejects(() => passLib.buildPkpass(member, { settings: passLib.settings(env) }), (e) => e.code === 'not_configured' && e.missing.includes('PASS_CERT_PEM_B64'));
 });
+
+test('an imported member\'s pass prints nothing under the QR (the serial is their old PassKit id)', () => {
+  const { buildPassJson, settings } = require('../lib/pass');
+  const s = settings({ APPLE_TEAM_ID: 'T', PASS_TYPE_ID: 'pass.x', PUBLIC_BASE_URL: 'https://x.test' });
+  const imported = buildPassJson({ id: '85c54ace-a2ed-428e-8edf-caa8168f2569', full_name: 'Yunus Tufail', points: 5, pass_serial: '16dm9KIQ7haLWTVgchJPHI', pass_auth_token: 'a'.repeat(32), created_at: '2026-10-10T23:39:17Z' }, s);
+  assert.equal(imported.barcodes[0].message, 'LBM:85c54ace-a2ed-428e-8edf-caa8168f2569');
+  assert.equal(imported.barcodes[0].altText, undefined);
+  const native = buildPassJson({ id: 'b24101aa-16a1-4d8d-a42f-5610b6cf787a', full_name: 'Yunus', points: 0, pass_serial: 'LBM-HAXM9Z7KW4', pass_auth_token: 'a'.repeat(32), created_at: '2026-10-09T15:12:36Z' }, s);
+  assert.equal(native.barcodes[0].altText, 'LBM-HAXM9Z7KW4');
+});
