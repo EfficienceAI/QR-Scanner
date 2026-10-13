@@ -38,8 +38,6 @@
   .btn:disabled { opacity: 0.45; cursor: default; transform: none; }
   .btn.primary { background: var(--accent); color: var(--accent-ink); }
   .btn.quiet { background: var(--fill); color: var(--text); }
-  .btn.google { background: var(--card); color: var(--text); border: 1px solid rgba(255, 255, 255, 0.35); min-height: 56px; font-size: 17px; }
-  .btn.google svg { width: 26px; height: 26px; }
   .wallet-badge { display: flex; justify-content: center; padding: 10px 0; }
   .wallet-badge img { height: 56px; width: auto; display: block; }
   .wallet-badge:active img { opacity: 0.8; }
@@ -93,9 +91,9 @@
       <img src="/join/add-to-apple-wallet.svg" alt="Add to Apple Wallet" width="177" height="56">
     </a>
     <p class="fine" id="passHint">Opens the Wallet app on iPhone.</p>
-    <a class="btn google" id="googleBtn" href="#" style="display:none">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><path d="M15 14h3"/></svg>
-      <span>Add to Google Wallet</span>
+    <a class="wallet-badge" id="googleBtn" href="#" style="display:none" aria-label="Add to Google Wallet">
+      <!-- Google's official badge (en-GB), used as supplied per Google's Wallet brand guidelines. -->
+      <img src="/join/add-to-google-wallet.svg" alt="Add to Google Wallet" width="203" height="56">
     </a>
   </div>
 </div>
@@ -173,7 +171,7 @@
     // a desktop gets the QR for an iPhone plus both links.
     var googleBtn = document.getElementById('googleBtn');
     if (hasGoogle) googleBtn.href = data.googleUrl;
-    googleBtn.style.display = hasGoogle && !isIOS ? 'inline-flex' : 'none';
+    googleBtn.style.display = hasGoogle && !isIOS ? 'flex' : 'none';
     walletBtn.style.display = isAndroid && hasGoogle ? 'none' : 'flex';
     document.getElementById('passHint').style.display = isAndroid && hasGoogle ? 'none' : 'block';
     var qrBox = document.getElementById('qrBox');
