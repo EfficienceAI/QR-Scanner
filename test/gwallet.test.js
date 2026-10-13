@@ -72,7 +72,7 @@ function fakeGoogle({ classExists = false, objectExists = false, fail = null } =
     if (u.includes('oauth2')) return { ok: true, status: 200, json: async () => ({ access_token: 'tok', expires_in: 3600 }) };
     if (fail) return { ok: false, status: fail, text: async () => JSON.stringify({ error: { message: 'denied' } }) };
     const isGet = method === 'GET';
-    if (isGet && u.includes('/loyaltyClass/')) return classExists ? { ok: true, status: 200, text: async () => JSON.stringify({ id: CLASS, reviewStatus: 'APPROVED' }) } : { ok: false, status: 404, text: async () => '{"error":{"message":"not found"}}' };
+    if (isGet && u.includes('/loyaltyClass/')) return classExists ? { ok: true, status: 200, text: async () => JSON.stringify({ id: CLASS, reviewStatus: 'approved' }) } : { ok: false, status: 404, text: async () => '{"error":{"message":"not found"}}' };
     if (isGet && u.includes('/loyaltyObject/')) return objectExists ? { ok: true, status: 200, text: async () => JSON.stringify({ id: OBJECT }) } : { ok: false, status: 404, text: async () => '{"error":{"message":"not found"}}' };
     return { ok: true, status: 200, text: async () => JSON.stringify(init.body ? JSON.parse(init.body) : {}) };
   };
