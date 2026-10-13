@@ -14,6 +14,7 @@
 
 const passkit = require('../lib/passkit');
 const ledger = require('../lib/ledger');
+const { after } = require('../lib/after');
 
 const SOURCE_TAG = 'loyalty-scanner';
 
@@ -250,12 +251,14 @@ function send(res, status, payload) {
  * front of a scan: an unhealthy Supabase used to add its whole timeout to
  * every single scan, and staff who think the tap failed tap again. res.end()
  * has already flushed by the time the write starts, so the queue waits for
- * PassKit alone -- but the invocation stays alive until the write settles, so
- * nothing is silently dropped either. recordEvent never throws.
+ * PassKit alone. The write is registered with the platform (lib/after.js),
+ * because Vercel may freeze the function as soon as the response is out and
+ * a write that is still in flight would otherwise be lost. recordEvent never
+ * throws.
  */
 function respondThenRecord(res, payload, event, log) {
   send(res, 200, payload);
-  return ledger.recordEvent(event, { log });
+  return after(ledger.recordEvent(event, { log }));
 }
 
 module.exports = async function handler(req, res) {
