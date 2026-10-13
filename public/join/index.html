@@ -38,8 +38,9 @@
   .btn:disabled { opacity: 0.45; cursor: default; transform: none; }
   .btn.primary { background: var(--accent); color: var(--accent-ink); }
   .btn.quiet { background: var(--fill); color: var(--text); }
-  .btn.wallet { background: #000; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); min-height: 56px; font-size: 18px; }
-  .btn.wallet svg { width: 30px; height: 30px; }
+  .wallet-badge { display: flex; justify-content: center; padding: 10px 0; }
+  .wallet-badge img { height: 56px; width: auto; display: block; }
+  .wallet-badge:active img { opacity: 0.8; }
   .fine { font-size: 12px; color: var(--text-3); line-height: 1.5; text-align: center; }
   .fine a { color: var(--text-2); }
   .done { display: none; flex-direction: column; gap: 14px; animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
@@ -75,7 +76,7 @@
         <label class="consent"><input type="checkbox" id="consent" name="consent"><span>Keep me posted about offers and news from La Bottega Milanese. <span style="color:var(--text-3)">(optional)</span></span></label>
       </div>
       <button class="btn primary" id="submitBtn" type="submit">Get my pass</button>
-      <p class="fine">By joining you agree to our <a href="#" id="termsLink">terms</a> and <a href="#" id="privacyLink">privacy notice</a>. <!-- PLACEHOLDER: link the real terms and privacy pages --></p>
+      <p class="fine">By joining you agree to our <a href="https://www.labottegamilanese.co.uk/policies/terms-of-service" id="termsLink" target="_blank" rel="noopener">terms</a> and <a href="https://www.labottegamilanese.co.uk/policies/privacy-policy" id="privacyLink" target="_blank" rel="noopener">privacy policy</a>.</p>
     </div>
   </form>
 
@@ -85,11 +86,11 @@
       <div class="qr" id="qrBox"><img id="qrImg" alt="QR code linking to your pass"><p>Not on an iPhone right now? Scan this with your iPhone camera to add the pass.</p></div>
       <div class="note" id="androidNote" style="display:none">Android: Google Wallet support is coming. For now, keep your phone number handy and staff can find you.</div>
     </div>
-    <a class="btn wallet" id="walletBtn" href="#">
-      <svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="6" y="10" width="36" height="28" rx="6" fill="#fff"/><rect x="6" y="16" width="36" height="7" fill="#e53935"/><rect x="6" y="23" width="36" height="7" fill="#fdd835"/><rect x="6" y="30" width="36" height="8" rx="2" fill="#43a047"/><path d="M30 24h12v14a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6V24h12a6 6 0 0 0 12 0z" fill="#1e88e5"/></svg>
-      <span>Add to Apple Wallet</span>
+    <a class="wallet-badge" id="walletBtn" href="#" aria-label="Add to Apple Wallet">
+      <!-- Apple's official badge, used as supplied (Add to Apple Wallet Guidelines): no recolouring, no reshaping, clear space around it. -->
+      <img src="/join/add-to-apple-wallet.svg" alt="Add to Apple Wallet" width="177" height="56">
     </a>
-    <p class="fine" id="passHint">Opens the Wallet app on iPhone. <!-- PLACEHOLDER: replace the button artwork with Apple's official "Add to Apple Wallet" badge (developer.apple.com/wallet/add-to-apple-wallet-guidelines/) --></p>
+    <p class="fine" id="passHint">Opens the Wallet app on iPhone.</p>
   </div>
 </div>
 
