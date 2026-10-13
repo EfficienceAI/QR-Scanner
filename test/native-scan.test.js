@@ -133,3 +133,27 @@ test('a PassKit scan is mirrored onto the imported member, and ignored for every
   w.deps.db.enabled = () => false;
   assert.equal(await w.handler.mirrorLegacy({ passkitMemberId: '16dm9KIQ7haLWTVgchJPHI', balance: 7 }), false, 'skipped where the members database is not configured');
 });
+
+test('a native change is written back to PassKit only for a linked member and only where PassKit keys exist', async () => {
+  const calls = [];
+  const fakePasskit = { earnPoints: async (ref, n) => { calls.push(['earn', ref.id, n]); return { points: 9 }; }, burnPoints: async (ref, n) => { calls.push(['burn', ref.id, n]); return { points: 0 }; } };
+  let w = world({ points: 8, passkitId: '16dm9KIQ7haLWTVgchJPHI' });
+  let h = createHandler({ ...w.deps, passkit: fakePasskit, env: { PASSKIT_API_KEY: 'k', PASSKIT_API_SECRET: 's' } });
+  let r = res(); await h.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
+  r = res(); await h.handle(UUID, { action: 'redeem_points', body: {}, cfg, res: r });
+  assert.deepEqual(calls, [['earn', '16dm9KIQ7haLWTVgchJPHI', 1], ['burn', '16dm9KIQ7haLWTVgchJPHI', 9]]);
+  calls.length = 0;
+  h = createHandler({ ...w.deps, passkit: fakePasskit, env: {} });
+  r = res(); await h.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
+  assert.deepEqual(calls, [], 'no PassKit keys on this deployment: nothing sent');
+  w = world({ points: 1 });
+  h = createHandler({ ...w.deps, passkit: fakePasskit, env: { PASSKIT_API_KEY: 'k', PASSKIT_API_SECRET: 's' } });
+  r = res(); await h.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
+  assert.deepEqual(calls, [], 'a member with no PassKit record: nothing sent');
+  assert.equal(r.body.points, 2, 'and the scan itself is unaffected');
+  fakePasskit.earnPoints = async () => { throw Object.assign(new Error('PassKit down'), { status: 502 }); };
+  w = world({ points: 1, passkitId: '16dm9KIQ7haLWTVgchJPHI' });
+  h = createHandler({ ...w.deps, passkit: fakePasskit, env: { PASSKIT_API_KEY: 'k', PASSKIT_API_SECRET: 's' } });
+  r = res(); await h.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
+  assert.equal(r.statusCode, 200, 'a PassKit failure never fails the scan');
+});

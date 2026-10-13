@@ -41,7 +41,7 @@ async function invoke(body) {
   return res;
 }
 
-test('an LBM: QR is served from the members table and never calls PassKit', async () => {
+test('an LBM: QR is served from the members table, and a linked PassKit record follows it', async () => {
   const w = stubWorld();
   const look = await invoke({ action: 'lookup_customer', qr_data: `LBM:${UUID}`, request_id: 'n1' });
   assert.equal(look.statusCode, 200);
@@ -51,7 +51,7 @@ test('an LBM: QR is served from the members table and never calls PassKit', asyn
   assert.equal(look.body.history.recorded, true);
   const add = await invoke({ action: 'add_points', qr_data: `LBM:${UUID}`, points: 2, request_id: 'n2' });
   assert.deepEqual(add.body, { ok: true, action: 'add_points', added: 2, points: 2 });
-  assert.equal(w.passkit[PK].points, 5, 'PassKit untouched by a native scan');
+  assert.equal(w.passkit[PK].points, 7, 'the linked PassKit record follows the native scan (overlap period)');
   const again = await invoke({ action: 'lookup_customer', qr_data: `LBM:${UUID}`, request_id: 'n3' });
   assert.equal(again.body.history.visits, 1, 'the add is now a visit in our own history');
   assert.deepEqual(w.ledger.map((r) => [r.action, r.member_id, r.external_id]), [['lookup', UUID, 'scan:n1'], ['add', UUID, 'scan:n2'], ['lookup', UUID, 'scan:n3']]);

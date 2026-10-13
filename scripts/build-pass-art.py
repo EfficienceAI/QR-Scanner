@@ -47,7 +47,8 @@ def stamp_row(strip, filled, scale, bean):
     """A stamp-card grid over the photo: five circles on the top row, four
     centred beneath. Empty stamps are a barely-there outline; a filled stamp
     is a cream disc with the bean. No dark band: the photo stays as shot.
-    At zero points nothing is drawn at all."""
+    At zero points nothing is drawn at all; with all nine filled the discs
+    are ringed in gold, because a free drink is ready."""
     w, h = strip.size
     out = strip.copy()
     if filled <= 0:
@@ -61,11 +62,17 @@ def stamp_row(strip, filled, scale, bean):
         [(margin_x + diameter / 2 + (i + 0.5) * pitch, h * 0.72) for i in range(4)],
     ]
     centres = rows[0] + rows[1]
+    full = filled >= STAMPS
+    gold = (212, 175, 55)
     layer = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     dd = ImageDraw.Draw(layer)
     for i, (cx, cy) in enumerate(centres):
         box = (int(cx - diameter / 2), int(cy - diameter / 2), int(cx + diameter / 2), int(cy + diameter / 2))
-        if i < filled:
+        if i < filled and full:
+            glow = max(2, round(3.5 * scale))
+            dd.ellipse((box[0] - glow, box[1] - glow, box[2] + glow, box[3] + glow), outline=gold + (70,), width=glow)
+            dd.ellipse(box, fill=(245, 236, 222, 236), outline=gold + (255,), width=max(2, round(2.4 * scale)))
+        elif i < filled:
             dd.ellipse(box, fill=(245, 236, 222, 232), outline=(245, 236, 222, 255), width=ring)
         else:
             dd.ellipse(box, fill=(255, 255, 255, 8), outline=(255, 255, 255, 46), width=ring)
