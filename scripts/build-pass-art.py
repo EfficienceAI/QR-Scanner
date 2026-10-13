@@ -20,7 +20,8 @@ strip-plain (the photo alone, used when PASS_STAMP_STYLE is "text" and the
 stamps are a text row under the photo).
 """
 from PIL import Image, ImageDraw, ImageFilter
-import os, sys
+import os
+import shutil, sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 ART = os.path.join(ROOT, 'pass-art')
@@ -125,7 +126,16 @@ def main():
             for n in range(STAMPS + 1):
                 stamp_row(base, n, scale, bean).convert('RGB').save(os.path.join(tdir, f'strip-{n}{suffix}.png'), optimize=True)
         print(f'{theme}: {3 * (STAMPS + 2)} strip images')
+        # Google Wallet shows the same stamp photo as an image module, fetched
+        # from a public URL: the @2x strips, served from the join page's folder.
+        web = os.path.join(ROOT, 'public', 'join', 'stamps', theme)
+        os.makedirs(web, exist_ok=True)
+        for n in range(STAMPS + 1):
+            shutil.copyfile(os.path.join(tdir, f'strip-{n}@2x.png'), os.path.join(web, f'strip-{n}.png'))
     print('common: logo + icon at 3 sizes')
+    # Google's programme logo: shown in a circle on the card, so the crest on black.
+    load('logo-on-black.png').convert('RGB').resize((660, 660), Image.LANCZOS).save(os.path.join(ROOT, 'public', 'join', 'wallet-logo.png'), optimize=True)
+    print('web: stamp strips for Google Wallet + wallet-logo.png')
 
 if __name__ == '__main__':
     main()

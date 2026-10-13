@@ -16,7 +16,7 @@ test('refresh one pass or every registered pass, gated by the admin secret', asy
   let r = res(); await h({ method: 'POST', headers: {}, body: { serial: 'LBM-1' } }, r); assert.equal(r.statusCode, 401);
   r = res(); await h({ method: 'POST', headers: { 'x-admin-secret': 's3cret' }, body: {} }, r); assert.equal(r.statusCode, 400);
   r = res(); await h({ method: 'POST', headers: { 'x-admin-secret': 's3cret' }, body: { serial: 'LBM-1' } }, r);
-  assert.equal(r.statusCode, 200); assert.deepEqual(r.body.results, [{ serial: 'LBM-1', found: true, sent: 1, failed: 0, removed: 0, skipped: false }]);
+  assert.equal(r.statusCode, 200); assert.deepEqual(r.body.results, [{ serial: 'LBM-1', found: true, sent: 1, failed: 0, removed: 0, skipped: false, google: false }]);
   r = res(); await h({ method: 'POST', headers: { 'x-admin-secret': 's3cret' }, body: { serial: 'LBM-MISSING' } }, r);
   assert.deepEqual(r.body.results, [{ serial: 'LBM-MISSING', found: false }]);
   r = res(); await h({ method: 'POST', headers: { 'x-admin-secret': 's3cret' }, body: { all: true } }, r);

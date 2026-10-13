@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const members = require('../../lib/members');
 const apns = require('../../lib/apns');
+const gwallet = require('../../lib/gwallet');
 
 function send(res, status, payload) {
   res.statusCode = status;
@@ -57,7 +58,8 @@ function createHandler(deps = {}) {
         const row = await touch(serial, deps);
         if (!row) { results.push({ serial, found: false }); continue; }
         const summary = await push(serial, { ...deps, log });
-        results.push({ serial, found: true, sent: summary.sent, failed: summary.failed, removed: summary.removed, skipped: summary.skipped });
+        const google = await (deps.syncGoogle || gwallet.syncAfterChange)(row, { ...deps, log });
+        results.push({ serial, found: true, sent: summary.sent, failed: summary.failed, removed: summary.removed, skipped: summary.skipped, google });
       }
       log({ event: 'refreshed', count: results.length, nextOffset });
       return send(res, 200, { ok: true, refreshed: results.length, nextOffset, results });

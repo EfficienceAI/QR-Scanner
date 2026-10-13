@@ -178,6 +178,8 @@ function mockTotals({ tz }) {
 // In-memory native members, for the signup page and the pass web service.
 const NATIVE = [];
 const REGS = [];
+// Google Wallet classes and objects, keyed by id.
+const GWALLET = { loyaltyClass: new Map(), loyaltyObject: new Map() };
 function postgrestFilter(url) {
   const out = [];
   for (const [k, v] of url.searchParams.entries()) {
@@ -241,13 +243,18 @@ function mockMembersApi(p, url, init, body, prefer, reply) {
 
 /** Stands in for both PassKit and PostgREST. */
 function installMockFetch() {
-  const reply = (status, body) => ({ ok: status < 400, status, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) });
+  const reply = (status, body) => ({
+    ok: status < 400, status,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+    json: async () => (typeof body === 'string' ? JSON.parse(body || 'null') : body),
+  });
   const stream = (items) => reply(200, items.map((r) => JSON.stringify({ result: r })).join('\n'));
 
   globalThis.fetch = async (rawUrl, init = {}) => {
     const url = new URL(String(rawUrl));
     const p = url.pathname;
-    const body = init.body ? JSON.parse(init.body) : null;
+    let body = null;
+    if (init.body) { try { body = JSON.parse(init.body); } catch { body = String(init.body); } } // Google's token request is form-encoded
     const prefer = String((init.headers && (init.headers.Prefer || init.headers.prefer)) || '');
 
     // ---- PostgREST
@@ -280,6 +287,21 @@ function installMockFetch() {
     // ---- PostgREST: native members + Wallet registrations (the pass system)
     if (p.startsWith('/rest/v1/members') || p.startsWith('/rest/v1/pass_registrations') || p.startsWith('/rest/v1/rpc/adjust_member_points') || p.startsWith('/rest/v1/rpc/pass_updated_serials')) {
       return mockMembersApi(p, url, init, body, prefer, reply);
+    }
+
+    // ---- Google Wallet (token exchange + Wallet Objects API)
+    if (url.hostname === 'oauth2.googleapis.com') return reply(200, { access_token: 'mock-google-token', expires_in: 3600, token_type: 'Bearer' });
+    if (url.hostname === 'walletobjects.googleapis.com') {
+      const gm = /^\/walletobjects\/v1\/(loyaltyClass|loyaltyObject)(?:\/(.+))?$/.exec(p);
+      if (!gm) return reply(404, { error: { message: 'mock: no such Google route ' + p } });
+      const store = GWALLET[gm[1]];
+      const gid = gm[2] ? decodeURIComponent(gm[2]) : null;
+      const method = (init.method || 'GET').toUpperCase();
+      if (method === 'GET') return gid ? (store.has(gid) ? reply(200, store.get(gid)) : reply(404, { error: { message: 'not found' } })) : reply(200, { resources: [...store.values()] });
+      if (method === 'POST') { if (store.has(body.id)) return reply(409, { error: { message: 'already exists' } }); store.set(body.id, body); return reply(200, body); }
+      if (method === 'PUT') { store.set(gid, body); return reply(200, body); }
+      if (method === 'PATCH') { const cur = store.get(gid); if (!cur) return reply(404, { error: { message: 'not found' } }); Object.assign(cur, body); return reply(200, cur); }
+      return reply(405, { error: { message: 'mock: unsupported' } });
     }
 
     // ---- PassKit
@@ -326,6 +348,16 @@ if (MOCK) {
   process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://mock.supabase.co';
   process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'mock-service-key';
   process.env.ADMIN_SECRET = process.env.ADMIN_SECRET || 'mock-admin-secret';
+  // Google Wallet with a throwaway service account: the JWTs are signed for
+  // real, the API calls land on the mock below.
+  process.env.GOOGLE_WALLET_ISSUER_ID = process.env.GOOGLE_WALLET_ISSUER_ID || '3388000000000000001';
+  if (!process.env.GOOGLE_WALLET_SA_JSON_B64) {
+    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    process.env.GOOGLE_WALLET_SA_JSON_B64 = Buffer.from(JSON.stringify({
+      client_email: 'mock-wallet@mock.iam.gserviceaccount.com',
+      private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    })).toString('base64');
+  }
   // Pass signing with a throwaway certificate: Wallet will refuse the result,
   // but the whole build/sign/zip path runs for real.
   if (!process.env.PASS_CERT_PEM_B64) {
@@ -579,6 +611,25 @@ async function selftest(base) {
   check('nothing goes below zero', nm.status === 409, 'HTTP ' + nm.status);
   const ghost = await post({ action: 'lookup_customer', qr_data: 'LBM:00000000-0000-0000-0000-000000000000', request_id: 'native-8' });
   check('an unknown native QR is a 404', ghost.status === 404 && ghost.body.error === 'member_not_found', 'HTTP ' + ghost.status);
+
+  console.log('\n  Google Wallet (Android)');
+  check('the join reply carries an Android link', typeof joined.googleUrl === 'string' && joined.googleUrl.startsWith('/api/gwallet/'), String(joined.googleUrl));
+  const gj = await realFetch(base + joined.googleUrl, { redirect: 'manual' });
+  const gloc = String(gj.headers.get('location') || '');
+  check('the Android link answers with a redirect to Google', gj.status === 302 && gloc.startsWith('https://pay.google.com/gp/v/save/'), 'HTTP ' + gj.status + ' ' + gloc.slice(0, 60));
+  const gclaims = gloc ? JSON.parse(Buffer.from(gloc.split('/save/')[1].split('.')[1], 'base64url').toString()) : {};
+  const expectedObject = process.env.GOOGLE_WALLET_ISSUER_ID + '.' + (native && native.id);
+  check('the save link names the member\'s own card', gclaims.typ === 'savetowallet' && gclaims.payload && gclaims.payload.loyaltyObjects[0].id === expectedObject, JSON.stringify(gclaims.payload));
+  check('the class was created in demo mode', [...GWALLET.loyaltyClass.values()].some((c) => c.reviewStatus === 'UNDER_REVIEW' && c.issuerName === 'La Bottega Milanese'));
+  check('the member remembers their Google card', native && native.gwallet_object_id === expectedObject, String(native && native.gwallet_object_id));
+  const gobjBefore = GWALLET.loyaltyObject.get(expectedObject);
+  check('the card carries the balance and the QR', gobjBefore && gobjBefore.loyaltyPoints.balance.int === native.points && gobjBefore.barcode.value === 'LBM:' + native.id, JSON.stringify(gobjBefore && gobjBefore.loyaltyPoints));
+  await post({ action: 'add_points', qr_data: nq, points: 2, request_id: 'native-g1' });
+  await new Promise((r) => setTimeout(r, 80));
+  const gobj = GWALLET.loyaltyObject.get(expectedObject);
+  check('a scan updates the Google card too', gobj && gobj.loyaltyPoints.balance.int === native.points && native.points === 2, `google=${gobj && gobj.loyaltyPoints.balance.int} ours=${native && native.points}`);
+  const andro = await realFetch(base + joined.passUrl, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/120 Mobile' } });
+  check('an Android phone opening the pass link is sent to Google Wallet', andro.status === 302 && String(andro.headers.get('location')).startsWith('/api/gwallet/'), 'HTTP ' + andro.status + ' ' + andro.headers.get('location'));
 
   console.log('\n  The overlap: PassKit scans mirrored onto imported members');
   const imp = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: [{ passkit_member_id: 'M1000000000', full_name: 'Imported Person', email: 'imported@example.com', phone: '', points: 4 }] }) });

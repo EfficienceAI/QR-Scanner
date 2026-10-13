@@ -110,6 +110,24 @@ the icon (the crest alone on black) at every size Apple wants.
   adding a second one. An imported member's history keeps their PassKit-era
   rows because `listMemberEvents` is asked for both ids.
 
+## Google Wallet (Android)
+
+`lib/gwallet.js` talks to the Wallet Objects API as the issuer's service
+account (`GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SA_JSON_B64`). One loyalty
+class is the card design (issuer name La Bottega Milanese, black card, the
+crest as logo); each member who asks for the Android card gets one loyalty
+object: balance, free drinks, the stamp photo for their balance (served from
+`public/join/stamps/<theme>/strip-N.png`) and the same `LBM:` QR as the Apple
+pass. `GET /api/gwallet/:serial?t=…` creates or refreshes the object, remembers
+its id on the member (`gwallet_object_id`) and redirects to Google's signed
+"save" link; the join page shows it to Android visitors, and an Android phone
+opening the Apple pass link is redirected to it. Every balance change (scanner,
+admin points, PassKit mirror) also patches the object, so Google updates the
+phones. Until Google approves publishing, only test accounts listed in the
+console can add the card. There is no in-place upgrade from a PassKit Android
+card: that card belongs to PassKit's issuer, so the customer adds ours and
+removes the old one.
+
 ## How a pass is built
 
 `lib/pass.js` assembles `pass.json` from the member row: a store card with

@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const members = require('../../lib/members');
 const apns = require('../../lib/apns');
+const gwallet = require('../../lib/gwallet');
 
 function send(res, status, payload) {
   res.statusCode = status;
@@ -49,8 +50,9 @@ function createHandler(deps = {}) {
 
       const points = await (deps.adjustPoints || members.adjustPoints)(member.id, delta, deps);
       const push = await (deps.pushPassUpdate || apns.pushPassUpdate)(member.pass_serial, { ...deps, log });
+      const google = await (deps.syncGoogle || gwallet.syncAfterChange)({ ...member, points }, { ...deps, log });
       log({ event: 'points_adjusted', serial: member.pass_serial, delta, points, push });
-      return send(res, 200, { ok: true, member: { id: member.id, serial: member.pass_serial, name: member.full_name, points }, push });
+      return send(res, 200, { ok: true, member: { id: member.id, serial: member.pass_serial, name: member.full_name, points }, push, google });
     } catch (err) {
       if (err instanceof members.InsufficientPointsError) return send(res, 409, { ok: false, error: 'insufficient_points', message: 'That would take the balance below zero.' });
       if (err instanceof members.NotFoundError) return send(res, 404, { ok: false, error: 'member_not_found' });

@@ -3,6 +3,7 @@
 /**
  * GET /api/pass/:serial?t=<download token>        -> the signed .pkpass
  * GET /api/pass/:serial?t=<download token>&qr=1   -> an SVG QR code of the pass link (for desktop signups)
+ * An Android browser is redirected to /api/gwallet/:serial (Google Wallet) instead.
  *
  * The download token is per member and lives only in the link the signup
  * page shows; it is not the pass's authenticationToken.
@@ -10,6 +11,7 @@
 
 const members = require('../../lib/members');
 const passLib = require('../../lib/pass');
+const gwallet = require('../../lib/gwallet');
 const { send, query } = require('../../lib/wallet');
 
 function createHandler(deps = {}) {
@@ -26,6 +28,16 @@ function createHandler(deps = {}) {
       return send(res, 502, { ok: false, error: 'db_error', message: err.message });
     }
     if (!member || !members.timingSafeEqual(token, member.download_token)) return send(res, 404, { ok: false, error: 'not_found' });
+
+    // One link for everyone: an Android phone is sent to the Google Wallet
+    // version of the same card (when Google Wallet is configured).
+    const ua = String((req.headers && req.headers['user-agent']) || '');
+    if (!q.qr && /Android/i.test(ua) && (deps.gwallet || gwallet).settings(deps.env || process.env).enabled) {
+      res.statusCode = 302;
+      res.setHeader('Location', `/api/gwallet/${encodeURIComponent(serial)}?t=${encodeURIComponent(token)}`);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.end();
+    }
 
     if (q.qr) {
       const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');

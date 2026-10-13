@@ -51,6 +51,12 @@ function readBody(req) {
 function passUrlFor(member) {
   return `/api/pass/${encodeURIComponent(member.pass_serial)}?t=${encodeURIComponent(member.download_token)}`;
 }
+/** The Google Wallet link, or null where Google Wallet is not configured. */
+function googleUrlFor(member, env = process.env) {
+  return require('../lib/gwallet').settings(env).enabled
+    ? `/api/gwallet/${encodeURIComponent(member.pass_serial)}?t=${encodeURIComponent(member.download_token)}`
+    : null;
+}
 
 function createHandler(deps = {}) {
   const db = deps.db || defaultDb;
@@ -86,12 +92,12 @@ function createHandler(deps = {}) {
         ok: true,
         existing,
         member: { id: member.id, name: member.full_name, points: Number(member.points) || 0 },
-        passUrl: passUrlFor(member),
+        passUrl: passUrlFor(member), googleUrl: googleUrlFor(member, deps.env),
       }, req);
     } catch (err) {
       if (err.status === 409 || /duplicate key/i.test(String(err.message))) {
         const member = await members.findByEmail(values.email, { db }).catch(() => null);
-        if (member) return send(res, 200, { ok: true, existing: true, member: { id: member.id, name: member.full_name, points: Number(member.points) || 0 }, passUrl: passUrlFor(member) }, req);
+        if (member) return send(res, 200, { ok: true, existing: true, member: { id: member.id, name: member.full_name, points: Number(member.points) || 0 }, passUrl: passUrlFor(member), googleUrl: googleUrlFor(member, deps.env) }, req);
       }
       log({ event: 'join.failed', status: err.status, message: err.message });
       return send(res, 502, { ok: false, error: 'db_error', message: 'Could not save your details. Please try again.' }, req);
@@ -101,4 +107,4 @@ function createHandler(deps = {}) {
 
 module.exports = createHandler();
 module.exports.createHandler = createHandler;
-module.exports._internals = { limited, passUrlFor, hits };
+module.exports._internals = { limited, passUrlFor, googleUrlFor, hits };
