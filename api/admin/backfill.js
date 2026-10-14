@@ -110,8 +110,12 @@ module.exports = async function handler(req, res) {
   try {
     const pid = await programId(requestedProgram);
     // Never import anything our live ledger has already recorded itself.
+    // The ledger's first live row is the default cutoff; ?cutoff= overrides
+    // it when the live scanner started recording later than the first row
+    // (test scans from another deployment share this ledger).
     const totals = await ledger.getTotals();
-    const cutoff = totals.liveSince ? Date.parse(totals.liveSince) : Date.now();
+    const requestedCutoff = Date.parse(url.searchParams.get('cutoff') || '');
+    const cutoff = Number.isFinite(requestedCutoff) ? requestedCutoff : totals.liveSince ? Date.parse(totals.liveSince) : Date.now();
 
     let imported = 0, sent = 0, seen = 0, skippedAfterCutoff = 0, skippedOther = 0, unknownPoints = 0, done = false;
     // Paging by offset over a log that is still being written can skip or
