@@ -81,7 +81,10 @@ function createHandler(deps = {}) {
 
     const log = (f) => console.log(JSON.stringify({ src: 'join', ...f }));
     try {
+      // One person, one card: an email or a mobile number that is already on
+      // a card brings that card back (with its points) rather than a new one.
       let member = await members.findByEmail(values.email, { db });
+      if (!member) member = await members.findByPhone(values.phone, { db });
       let existing = true;
       if (!member) {
         existing = false;
