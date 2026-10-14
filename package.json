@@ -16,5 +16,8 @@
     "@vercel/functions": "^3.9.11",
     "passkit-generator": "^3.6.1",
     "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "node-forge": "^1.4.0"
   }
 }
