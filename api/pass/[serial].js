@@ -35,6 +35,7 @@ function createHandler(deps = {}) {
     try {
       member = await (deps.getBySerial || members.getBySerial)(serial, deps);
     } catch (err) {
+      if (err.code === 'timeout') return send(res, 503, { ok: false, error: 'db_timeout', message: 'The members database did not answer in time. Try again.', retryable: true });
       if (err.status === 0) return send(res, 503, { ok: false, error: 'not_configured', message: 'The members database is not configured yet.' });
       return send(res, 502, { ok: false, error: 'db_error', message: err.message });
     }

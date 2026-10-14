@@ -257,3 +257,27 @@ test('the four after-reply jobs are armed before the flush, and one failing does
     else globalThis[sym] = before;
   }
 });
+
+test('a stalled database tells staff to try again, not that the deployment is broken', async () => {
+  // L7. A timeout and a missing SUPABASE_URL both arrive as DbError status 0,
+  // and the handler branched on that, so a Supabase stall mid-shift told
+  // staff the deployment was not configured -- sending them to the wrong
+  // place entirely, and never suggesting the one thing that would work.
+  let w = world();
+  w.deps.members.getById = async () => { throw new DbError(0, 'database timeout after 6000ms', null, 'timeout'); };
+  let r = res();
+  await w.handler.handle(UUID, { action: 'lookup_customer', body: {}, cfg, res: r, log: () => {} });
+  assert.equal(r.statusCode, 503);
+  assert.equal(r.body.error, 'db_timeout');
+  assert.equal(r.body.retryable, true);
+  assert.match(r.body.message, /try again/i);
+  assert.ok(!/configur/i.test(r.body.message), 'and it does not blame the deployment');
+
+  // A genuinely unconfigured deployment still says so.
+  w = world();
+  w.deps.members.getById = async () => { throw new DbError(0, 'database not configured', null, 'not_configured'); };
+  r = res();
+  await w.handler.handle(UUID, { action: 'lookup_customer', body: {}, cfg, res: r, log: () => {} });
+  assert.equal(r.statusCode, 503);
+  assert.equal(r.body.error, 'not_configured');
+});

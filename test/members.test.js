@@ -86,3 +86,35 @@ test('syncPoints refuses to set a balance it cannot read', async () => {
   await M.syncPoints('uuid-1', '7.4', { db });
   assert.equal(writes[1].points, 7, 'a readable amount is rounded and written');
 });
+
+test('memberIdFromQr demands a real UUID, not merely 36 of the right characters', () => {
+  // L8. /^[0-9a-f-]{36}$/i was a shape check: it accepted 36 hyphens. A
+  // damaged or spoofed QR then reached PostgREST as id=eq.------..., which
+  // answers 400 "invalid input syntax for type uuid", which the handler maps
+  // to 502 "the database did not answer, try again" -- so staff retried a
+  // scan that could never work instead of seeing "not one of our codes".
+  const real = 'b24101aa-16a1-4d8d-a42f-5610b6cf787a';
+  assert.equal(M.memberIdFromQr(`LBM:${real}`), real);
+  assert.equal(M.memberIdFromQr(`LBM:${real.toUpperCase()}`), real, 'case is normalised');
+  assert.equal(M.memberIdFromQr(` LBM:${real} `), real);
+
+  for (const bad of [
+    '------------------------------------',           // 36 hyphens
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',           // 36 hex, no hyphens
+    'b24101aa16a1-4d8d-a42f-5610b6cf787a-',           // hyphens in the wrong places
+    'b24101aa-16a1-4d8d-a42f-5610b6cf787',            // too short
+    'b24101aa-16a1-4d8d-a42f-5610b6cf787ab',          // too long
+    'b24101aa-16a1-4d8d-a42f-5610b6cf787g',           // not hex
+    '-24101aa-16a1-4d8d-a42f-5610b6cf787a',
+  ]) {
+    assert.equal(M.memberIdFromQr(`LBM:${bad}`), null, `${bad} is not a member id`);
+  }
+
+  // And the 4,829,175 protection is untouched: a PassKit id is neither 36
+  // characters nor hyphenated, and there is no LBM: prefix on it anyway.
+  assert.equal(M.memberIdFromQr('4829175'), null);
+  assert.equal(M.memberIdFromQr('16dm9KIQ7haLWTVgchJPHI'), null);
+  assert.equal(M.memberIdFromQr(`LBM:16dm9KIQ7haLWTVgchJPHI`), null);
+  assert.equal(M.memberIdFromQr(''), null);
+  assert.equal(M.memberIdFromQr(null), null);
+});
