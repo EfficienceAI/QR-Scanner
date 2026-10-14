@@ -158,6 +158,11 @@
   });
 
   function showDone(data) {
+    // An email that already has a member gets no pass link back: it would be
+    // a bearer token for somebody else's card, which is all an attacker would
+    // have needed. There is nothing to add to a wallet on this screen, so
+    // send them to the counter.
+    if (data.existing && !data.passUrl) { showExisting(data); return; }
     var first = String((data.member && data.member.name) || '').split(' ')[0];
     document.getElementById('helloName').textContent = data.existing ? ('Welcome back' + (first ? ', ' + first : '')) : ('You’re in' + (first ? ', ' + first : ''));
     var hasGoogle = Boolean(data.googleUrl);
@@ -180,6 +185,20 @@
       qrBox.classList.add('show');
     }
     document.getElementById('androidNote').style.display = isAndroid && !hasGoogle ? 'block' : 'none';
+    form.style.display = 'none';
+    document.getElementById('done').classList.add('show');
+    window.scrollTo(0, 0);
+  }
+
+  function showExisting(data) {
+    document.getElementById('helloName').textContent = 'Welcome back';
+    document.getElementById('helloSub').textContent = data.message
+      || 'You are already a member. Ask a member of staff and they can bring your card up on the till.';
+    document.getElementById('walletBtn').style.display = 'none';
+    document.getElementById('googleBtn').style.display = 'none';
+    document.getElementById('passHint').style.display = 'none';
+    document.getElementById('androidNote').style.display = 'none';
+    document.getElementById('qrBox').classList.remove('show');
     form.style.display = 'none';
     document.getElementById('done').classList.add('show');
     window.scrollTo(0, 0);

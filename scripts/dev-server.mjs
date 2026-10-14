@@ -620,6 +620,17 @@ async function selftest(base) {
   check('the member row exists', Boolean(native));
   const pk = native ? await realFetch(base + joined.passUrl) : null;
   check('their pass is served', pk && pk.status === 200 && String(pk.headers.get('content-type')).includes('vnd.apple.pkpass'), pk && ('HTTP ' + pk.status + ' ' + pk.headers.get('content-type')));
+  // C1: a repeat signup on a known address must not hand the card over. The
+  // email is the only thing the caller needs to know, so this reply carries
+  // no member id (the QR payload), no download token and no PII.
+  const repeat = await realFetch(base + '/api/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ full_name: 'A B', email: 'selftest@example.com', phone: '07700 900000' }) });
+  const repeatBody = await repeat.json();
+  const repeatWire = JSON.stringify(repeatBody);
+  check('a repeat join on a known email discloses nothing',
+    repeat.status === 200 && repeatBody.existing === true && !repeatBody.passUrl && !repeatBody.member
+      && (!native || (!repeatWire.includes(native.id) && !repeatWire.includes(native.download_token))),
+    'HTTP ' + repeat.status + ' ' + repeatWire.slice(0, 120));
+
   const nq = native ? `LBM:${native.id}` : 'LBM:missing';
   const nl = await post({ action: 'lookup_customer', qr_data: nq, request_id: 'native-1' });
   check('a native QR is looked up without PassKit', nl.status === 200 && nl.body.member && nl.body.member.native === true, 'HTTP ' + nl.status + ' ' + JSON.stringify(nl.body).slice(0, 160));
