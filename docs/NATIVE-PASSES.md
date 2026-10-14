@@ -90,7 +90,12 @@ the icon (the crest alone on black) at every size Apple wants.
 ## Admin endpoints (header `x-admin-secret`)
 
 - `POST /api/admin/points { serial | email, delta }` adjusts a native member's balance and refreshes their pass.
-- `POST /api/admin/refresh { serial } | { all: true, offset }` re-pushes passes without touching balances, for artwork or theme changes.
+- `POST /api/admin/refresh { serial } | { all: true, after } | { class: true }` re-pushes passes
+  without touching balances, for artwork or theme changes. `all` walks the members
+  table by serial: call it again with the `nextAfter` it returns until that comes
+  back `null`. The first page also pushes the Google Wallet card design (the class),
+  which is the only thing that can change an Android card's appearance or re-submit
+  a class stuck `UNDER_REVIEW`; `{ class: true }` does just that and touches no passes.
 - `POST /api/admin/import { members: [...], dry_run }` brings PassKit members into `members` (up to 500 a call). Keyed on the PassKit member id, so re-running updates points and never duplicates; someone who already joined natively with the same email is linked, not duplicated. `scripts/import-passkit.mjs` feeds it from PassKit's CSV export.
 
 ## The scanner and the overlap period
