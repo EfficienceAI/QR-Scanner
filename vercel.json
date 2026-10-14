@@ -2,6 +2,7 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "functions": {
-    "api/admin/backfill.js": { "maxDuration": 60 }
+    "api/admin/backfill.js": { "maxDuration": 60 },
+    "api/loyalty.js": { "maxDuration": 60 }
   }
 }
