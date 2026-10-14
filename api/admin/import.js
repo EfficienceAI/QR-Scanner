@@ -20,7 +20,7 @@
  * script scripts/import-passkit.mjs feeds it from PassKit's CSV export.
  */
 
-const crypto = require('crypto');
+const auth = require('../../lib/auth');
 const members = require('../../lib/members');
 const { db: defaultDb } = require('../../lib/db');
 
@@ -43,11 +43,6 @@ function readBody(req) {
   if (req.body == null) return {};
   if (typeof req.body === 'object') return req.body;
   try { return JSON.parse(req.body); } catch { return {}; }
-}
-function authorized(req, secret) {
-  const given = String((req.headers && req.headers['x-admin-secret']) || '');
-  const a = Buffer.from(given), b = Buffer.from(secret);
-  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
 }
 function inList(values) {
   return encodeURIComponent(`(${values.map((v) => `"${String(v).replace(/"/g, '')}"`).join(',')})`);
@@ -134,9 +129,10 @@ function createHandler(deps = {}) {
 
   return async function handler(req, res) {
     if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return send(res, 405, { ok: false, error: 'method_not_allowed' }); }
-    const secret = (deps.env || process.env).ADMIN_SECRET || '';
-    if (!secret) return send(res, 503, { ok: false, error: 'not_configured', message: 'ADMIN_SECRET is not set.' });
-    if (!authorized(req, secret)) return send(res, 401, { ok: false, error: 'unauthorized' });
+    // The shared gate: hashed constant-time compare plus the brute-force
+    // brake. A private copy here would have neither.
+    const gate = auth.requireAdmin(req, { env: deps.env || process.env });
+    if (gate) return send(res, gate.status, gate.body);
     if (!db.enabled()) return send(res, 503, { ok: false, error: 'not_configured', message: 'The members database is not configured yet.' });
 
     const body = readBody(req);
