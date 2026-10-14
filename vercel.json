@@ -13,6 +13,9 @@
     },
     "api/admin/import.js": {
       "maxDuration": 60
+    },
+    "api/loyalty.js": {
+      "maxDuration": 60
     }
   },
   "redirects": [

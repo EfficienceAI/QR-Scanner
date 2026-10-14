@@ -74,3 +74,38 @@ test('remove_points burns points, refuses to go below zero, and add_points still
   r = await invoke({ action: 'lookup_customer', qr_data: 'M1' });
   assert.equal(r.statusCode, 200); assert.equal(r.body.points, 6); assert.equal(r.body.member.name, 'A B');
 });
+
+test('the ledger write is armed with waitUntil before the reply goes out', async () => {
+  // Without this the write is lost whenever Vercel freezes the function at
+  // res.end(), and the scan is undercounted. Deleting the after() wrapper in
+  // respondThenRecord, or moving it below send(), must fail here.
+  const db = { M1: { id: 'M1', programId: 'P', points: 4, person: {} } };
+  const passkit = fakePassKit(db);
+  global.fetch = async (url, init) => {
+    if (String(url).includes('/rest/v1/')) return { ok: true, status: 201, text: async () => '' };
+    return passkit(url, init);
+  };
+  process.env.SUPABASE_URL = 'https://db.supabase.co';
+  process.env.SUPABASE_SERVICE_KEY = 'svc';
+  const sym = Symbol.for('@vercel/request-context');
+  const before = globalThis[sym];
+  const registered = [];
+  globalThis[sym] = { get: () => ({ waitUntil: (p) => registered.push(p) }) };
+  try {
+    let registeredAtFlush = null;
+    const res = {
+      statusCode: 0, headers: {},
+      setHeader(k, v) { this.headers[k] = v; },
+      end(x) { this.body = x ? JSON.parse(x) : null; registeredAtFlush = registered.length; },
+    };
+    await handler({ method: 'POST', headers: {}, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(registered.length, 1, 'the ledger write is handed to the platform exactly once');
+    assert.equal(registeredAtFlush, 1, 'and it is armed before res.end() flushes, not after');
+    await Promise.all(registered);
+  } finally {
+    if (before === undefined) delete globalThis[sym];
+    else globalThis[sym] = before;
+    process.env.SUPABASE_URL = ''; process.env.SUPABASE_SERVICE_KEY = '';
+  }
+});

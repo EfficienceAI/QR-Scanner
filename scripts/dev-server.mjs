@@ -33,6 +33,19 @@ const require = createRequire(import.meta.url);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
 
+/**
+ * On Vercel, work registered after the response stays alive because the
+ * platform exposes a request context carrying waitUntil (see lib/after.js).
+ * There is no such thing locally, so install the same contract: it makes
+ * `npm run verify` exercise the real registration path instead of only the
+ * injected one in the unit tests, and lets the self-test prove that a scan
+ * really does register its ledger write.
+ */
+const afterRegistered = [];
+globalThis[Symbol.for('@vercel/request-context')] = {
+  get: () => ({ waitUntil: (p) => { afterRegistered.push(p); } }),
+};
+
 const args = process.argv.slice(2);
 const SELFTEST = args.includes('--selftest');
 const MOCK = args.includes('--mock') || SELFTEST;
@@ -577,6 +590,18 @@ async function selftest(base) {
   await post({ action: 'lookup_customer', qr_data: 'M1000', request_id: 'selftest-other-key' });
   const fresh = await total('2024-01-03');
   check('a new request id counts as another scan', fresh - shared === 1, `+${fresh - shared}`);
+
+  console.log('\n  M2: after-reply work survives the response (lib/after.js)');
+  // Vercel may freeze a function the moment res.end() flushes. Unless the
+  // ledger write is handed to waitUntil, it is simply lost and the scan is
+  // undercounted -- silently, which is why this is asserted here and not just
+  // in the unit tests.
+  const registeredBefore = afterRegistered.length;
+  const armed = await post({ action: 'add_points', qr_data: 'M1000', points: 1 });
+  const armedCount = afterRegistered.length - registeredBefore;
+  check('a scan registers its ledger write with the platform',
+    armed.status === 200 && armedCount === 1, `HTTP ${armed.status}, registered ${armedCount}`);
+  await Promise.all(afterRegistered.slice(registeredBefore));
 
   console.log('\n  H3 / L8: the history import');
   const noSecret = await realFetch(base + '/api/admin/backfill?dryRun=1', { method: 'POST' });

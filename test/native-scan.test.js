@@ -157,3 +157,28 @@ test('a native change is written back to PassKit only for a linked member and on
   r = res(); await h.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
   assert.equal(r.statusCode, 200, 'a PassKit failure never fails the scan');
 });
+
+test('after-reply work is handed to the platform before the reply flushes', async () => {
+  // Same guarantee as the PassKit path (test/loyalty.test.js): Vercel may
+  // freeze the function the moment res.end() flushes, so the registration
+  // has to happen first, and the work must still start only after the reply.
+  const sym = Symbol.for('@vercel/request-context');
+  const before = globalThis[sym];
+  const registered = [];
+  globalThis[sym] = { get: () => ({ waitUntil: (p) => registered.push(p) }) };
+  try {
+    const w = world({ points: 1 });
+    let started = false;
+    w.deps.ledger.recordEvent = async (e) => { started = true; w.events.push(e); return true; };
+    let registeredAtFlush = null, startedAtFlush = null;
+    const r = { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.body = b ? JSON.parse(b) : null; registeredAtFlush = registered.length; startedAtFlush = started; } };
+    await w.handler.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
+    assert.equal(registeredAtFlush, 1, 'armed before res.end() flushed');
+    assert.equal(startedAtFlush, false, 'but the work had not started yet: it never delays the reply');
+    await Promise.all(registered);
+    assert.equal(started, true);
+    assert.equal(w.events.length, 1);
+  } finally {
+    if (before === undefined) delete globalThis[sym]; else globalThis[sym] = before;
+  }
+});

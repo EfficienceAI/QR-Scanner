@@ -9,8 +9,12 @@ customer's QR code (a PassKit member pass, which encodes the member id), then
 add stamps or redeem a free drink. The redeem cost is a server setting
 (`LOYALTY_REDEEM_COST`, default 9) — never a client constant.
 
-Deployed on Vercel as a static page plus Node functions. There is no
-framework, no bundler and no runtime dependencies.
+Deployed on Vercel as a static page plus Node functions. There is no framework
+and no bundler. There is exactly one runtime dependency, `@vercel/functions`,
+for the `waitUntil` that keeps after-reply work alive (see `lib/after.js`);
+`lib/after.js` falls back to the platform's request-context symbol if it is
+absent, so `npm test` still needs no install step. Keep the list at one: a new
+dependency on this hot path needs a reason as good as that one.
 
 Three systems hold data (the third is new and not yet wired to the scanner):
 
@@ -36,6 +40,7 @@ Three systems hold data (the third is new and not yet wired to the scanner):
 | `lib/passkit.js` | PassKit Membership REST client (JWT signed per request) |
 | `lib/ledger.js` | PostgREST calls against `scan_events` with the service key |
 | `lib/time.js` | Timezone helpers, so buckets follow the shop's clock through DST |
+| `lib/after.js` | `after()`: registers post-response work with the platform so Vercel cannot freeze the function before it finishes |
 | `lib/auth.js` | The admin secret gate for the backfill |
 | `public/join/index.html` | The signup page for native members (replaces the Carrd page) |
 | `api/join.js` | Creates a native member and answers with the pass download link |
@@ -64,6 +69,14 @@ Three systems hold data (the third is new and not yet wired to the scanner):
 - **The ledger must never delay or break a scan.** `recordEvent` never
   throws, and handlers respond *before* they record (`respondThenRecord` in
   `api/loyalty.js`). Do not move a ledger call in front of a response.
+- **Work that happens after the response must go through `after()`.** Vercel
+  can freeze a function the moment `res.end()` flushes, so a bare floating
+  promise is simply lost — that is how scans went uncounted. `after()`
+  registers it with the platform's `waitUntil`. Two things matter and both are
+  covered by tests that fail if you undo them: register **before** `send()`
+  (otherwise the guarantee rests on nobody adding an `await` between the two
+  lines), and keep returning the promise (the dev server and the tests await
+  it, because locally there is no `waitUntil`).
 - **The API is deliberately open.** `/api/loyalty` and `/api/stats` take no
   application-level authentication: the scanner has to work the instant a
   staff member picks the device up. Access control is the deployment's job
