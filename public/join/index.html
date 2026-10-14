@@ -82,6 +82,37 @@
       </div>
       <button class="btn primary" id="submitBtn" type="submit">Get my pass</button>
       <p class="fine">By joining you agree to our <a href="https://www.labottegamilanese.co.uk/policies/terms-of-service" id="termsLink" target="_blank" rel="noopener">terms</a> and <a href="https://www.labottegamilanese.co.uk/policies/privacy-policy" id="privacyLink" target="_blank" rel="noopener">privacy policy</a>.</p>
+      <p class="fine">Already have a card? <a href="#" id="lostLink">Get it back</a></p>
+    </div>
+  </form>
+
+  <form id="lostForm" style="display:none" novalidate>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <h1>Get your card back</h1>
+        <p class="lead" style="margin-top:8px">Enter the email or mobile number on your card. We’ll email you a code.</p>
+      </div>
+      <div class="alert" id="lostAlert"></div>
+      <div class="fields">
+        <div class="field" id="f-lost"><label for="lostId">Email or mobile</label><input type="text" id="lostId" autocomplete="email" inputmode="email" placeholder="you@example.com or 07700 900000"><div class="err">Please enter the email or mobile number on your card.</div></div>
+      </div>
+      <button class="btn primary" id="lostBtn" type="submit">Send me a code</button>
+      <p class="fine"><a href="#" id="lostBack">Back to joining</a></p>
+    </div>
+  </form>
+
+  <form id="codeForm" style="display:none" novalidate>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <h1>Check your email</h1>
+        <p class="lead" style="margin-top:8px" id="codeText"></p>
+      </div>
+      <div class="alert" id="codeAlert"></div>
+      <div class="fields">
+        <div class="field" id="f-code"><label for="codeInput">6-digit code</label><input type="text" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"><div class="err">Enter the 6-digit code from the email.</div></div>
+      </div>
+      <button class="btn primary" id="codeBtn" type="submit">Confirm code</button>
+      <p class="fine">Nothing arrived? Check spam, or <a href="#" id="codeResend">send a new code</a>.</p>
     </div>
   </form>
 
@@ -155,11 +186,82 @@
         submitBtn.disabled = false; submitBtn.textContent = 'Get my pass';
         return;
       }
+      if (data.existing) {
+        // Already on a card: the link is only handed out against the emailed code.
+        submitBtn.disabled = false; submitBtn.textContent = 'Get my pass';
+        if (data.recovery) showCodeStep({ email: document.getElementById('email').value, phone: document.getElementById('phone').value }, data.hint);
+        else showAlert(data.message || 'That email or mobile number is already on a card. Please ask a member of staff.');
+        return;
+      }
       showDone(data);
     } catch (err) {
       showAlert('Network error. Please check your connection and try again.');
       submitBtn.disabled = false; submitBtn.textContent = 'Get my pass';
     }
+  });
+
+  // ---- Lost your pass? -> a code to the email on the card -> the card's links
+  var lostForm = document.getElementById('lostForm');
+  var codeForm = document.getElementById('codeForm');
+  var recoverWho = null;
+  function idFields(value) { var v = String(value || '').trim(); return v.indexOf('@') >= 0 ? { email: v } : { phone: v }; }
+  function showForm(which) {
+    form.style.display = which === 'join' ? '' : 'none';
+    lostForm.style.display = which === 'lost' ? '' : 'none';
+    codeForm.style.display = which === 'code' ? '' : 'none';
+    window.scrollTo(0, 0);
+  }
+  function showCodeStep(who, hint) {
+    recoverWho = who;
+    document.getElementById('codeText').textContent = hint
+      ? 'You already have a card. We’ve emailed a code to ' + hint + '. Enter it below to get your card back.'
+      : 'If that email or number is on a card, we’ve emailed a code to the address on file. Enter it below to get your card back.';
+    document.getElementById('codeInput').value = '';
+    showForm('code');
+    document.getElementById('codeInput').focus();
+  }
+  async function recover(body) {
+    var resp = await fetch('/api/recover', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var data = null; try { data = await resp.json(); } catch (err) { data = null; }
+    return { ok: resp.ok && data && data.ok, data: data };
+  }
+  document.getElementById('lostLink').addEventListener('click', function (e) { e.preventDefault(); showForm('lost'); });
+  document.getElementById('lostBack').addEventListener('click', function (e) { e.preventDefault(); showForm('join'); });
+  lostForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var alertLost = document.getElementById('lostAlert');
+    alertLost.classList.remove('show');
+    var value = document.getElementById('lostId').value.trim();
+    var looksRight = value.indexOf('@') >= 0 ? /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value) : /^(\+|00)?\d{7,15}$/.test(value.replace(/[\s().-]/g, ''));
+    mark('f-lost', !looksRight); if (!looksRight) return;
+    var btn = document.getElementById('lostBtn'); btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      var r = await recover(idFields(value));
+      btn.disabled = false; btn.textContent = 'Send me a code';
+      if (!r.ok) { alertLost.textContent = (r.data && r.data.message) || 'Something went wrong. Please try again.'; alertLost.classList.add('show'); return; }
+      showCodeStep(idFields(value), r.data.hint);
+    } catch (err) { btn.disabled = false; btn.textContent = 'Send me a code'; alertLost.textContent = 'Network error. Please try again.'; alertLost.classList.add('show'); }
+  });
+  document.getElementById('codeResend').addEventListener('click', async function (e) {
+    e.preventDefault();
+    if (!recoverWho) return;
+    var alertCode = document.getElementById('codeAlert');
+    try { var r = await recover(recoverWho); alertCode.textContent = r.ok ? 'A new code is on its way.' : ((r.data && r.data.message) || 'Could not send a new code just now.'); alertCode.classList.add('show'); } catch (err) { alertCode.textContent = 'Network error. Please try again.'; alertCode.classList.add('show'); }
+  });
+  codeForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var alertCode = document.getElementById('codeAlert');
+    alertCode.classList.remove('show');
+    var code = document.getElementById('codeInput').value.replace(/\D/g, '');
+    mark('f-code', code.length !== 6); if (code.length !== 6) return;
+    var btn = document.getElementById('codeBtn'); btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      var r = await recover(Object.assign({ code: code }, recoverWho || {}));
+      btn.disabled = false; btn.textContent = 'Confirm code';
+      if (!r.ok) { alertCode.textContent = (r.data && r.data.message) || 'That code is not right.'; alertCode.classList.add('show'); return; }
+      codeForm.style.display = 'none';
+      showDone(r.data);
+    } catch (err) { btn.disabled = false; btn.textContent = 'Confirm code'; alertCode.textContent = 'Network error. Please try again.'; alertCode.classList.add('show'); }
   });
 
   function showDone(data) {
@@ -168,7 +270,7 @@
     var hasGoogle = Boolean(data.googleUrl);
     var walletName = isAndroid && hasGoogle ? 'Google Wallet' : 'Apple Wallet';
     document.getElementById('helloSub').textContent = data.existing
-      ? 'You already have a card. Add it to ' + walletName + ' again below if you need it.'
+      ? 'Here is your card again, with your points. Add it to ' + walletName + ' below.'
       : 'Add your card to ' + walletName + ' and show it at the counter to collect stamps.';
     var walletBtn = document.getElementById('walletBtn');
     walletBtn.href = data.passUrl;

@@ -110,6 +110,19 @@ the icon (the crest alone on black) at every size Apple wants.
   adding a second one. An imported member's history keeps their PassKit-era
   rows because `listMemberEvents` is asked for both ids.
 
+## Lost your pass (recovery codes)
+
+An email or mobile number that is already on a card never gets the card's
+link straight back from the join page: anyone who knew a friend's number
+could collect their points. `POST /api/join` with a known email or number
+answers `existing: true, recovery: true` and sends a six-digit code to the
+email on the card through Resend (`RESEND_API_KEY`, `RESEND_FROM`);
+`POST /api/recover { email | phone, code }` trades the code for the links
+and rotates the download token so older links die. Codes live ten minutes,
+allow five tries, one send a minute; the first call answers the same way
+for an unknown email, so the endpoint cannot be used to look people up.
+Without Resend configured the page says to ask staff.
+
 ## Google Wallet (Android)
 
 `lib/gwallet.js` talks to the Wallet Objects API as the issuer's service

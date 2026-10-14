@@ -18,7 +18,7 @@ function fakeDb() {
   };
 }
 
-test('join creates a member and answers with the pass link; a repeat gets the same pass', async () => {
+test('join creates a member and answers with the pass link; a repeat gets no link', async () => {
   _internals.hits.clear();
   const db = fakeDb();
   const h = createHandler({ db });
@@ -27,9 +27,10 @@ test('join creates a member and answers with the pass link; a repeat gets the sa
   assert.equal(r.statusCode, 201); assert.equal(r.body.ok, true); assert.equal(r.body.existing, false);
   assert.match(r.body.passUrl, /^\/api\/pass\/LBM-[A-Z2-9]{10}\?t=/);
   assert.equal(db.rows[0].email, 'yunus@example.com'); assert.equal(db.rows[0].phone, '+447700900123'); assert.equal(db.rows[0].consent_marketing, true);
-  const first = r.body.passUrl;
   r = res(); await h({ method: 'POST', headers, body: { full_name: 'Yunus Tufail', email: 'yunus@example.com', phone: '07700900123' } }, r);
-  assert.equal(r.statusCode, 200); assert.equal(r.body.existing, true); assert.equal(r.body.passUrl, first);
+  assert.equal(r.statusCode, 200); assert.equal(r.body.existing, true);
+  assert.equal(r.body.passUrl, undefined, 'a repeat never gets the link straight back');
+  assert.equal(r.body.recovery, false, 'no Resend configured here: staff help instead');
   assert.equal(db.rows.length, 1);
 });
 
@@ -56,11 +57,16 @@ test('a mobile number already on a card brings that card back, even with a new e
   let r = res();
   await h({ method: 'POST', headers: {}, body: { full_name: 'Yunus Tufail', email: 'yunus@example.com', phone: '07700 900123' } }, r);
   assert.equal(r.statusCode, 201);
+  const sent = [];
+  const withMail = createHandler({ db, env: { RESEND_API_KEY: 'k', RESEND_FROM: 'La Bottega <x@y.com>' }, recovery: { settings: () => ({ enabled: true }), startRecovery: async (m) => { sent.push(m.email); return { sent: true, hint: 'y•••@example.com' }; }, maskEmail: () => 'y•••@example.com' } });
   r = res();
-  await h({ method: 'POST', headers: {}, body: { full_name: 'Y Tufail', email: 'another@example.com', phone: '+44 7700 900123' } }, r);
+  await withMail({ method: 'POST', headers: {}, body: { full_name: 'Y Tufail', email: 'another@example.com', phone: '+44 7700 900123' } }, r);
   assert.equal(r.statusCode, 200);
   assert.equal(r.body.existing, true, 'same number = same card');
-  assert.equal(r.body.member.name, 'Yunus Tufail');
+  assert.equal(r.body.recovery, true); assert.equal(r.body.hint, 'y•••@example.com');
+  assert.equal(r.body.passUrl, undefined, 'the link is not handed to whoever typed the number');
+  assert.equal(r.body.member, undefined, 'nor the name on the card');
+  assert.deepEqual(sent, ['yunus@example.com'], 'the code went to the email on the card, not the one typed');
   assert.equal(db.rows.length, 1, 'no second card was made');
   r = res();
   await h({ method: 'POST', headers: {}, body: { full_name: 'Marco Rossi', email: 'marco@example.it', phone: '+39 333 123 4567' } }, r);

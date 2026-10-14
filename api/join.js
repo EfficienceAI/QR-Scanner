@@ -8,6 +8,7 @@
  */
 
 const members = require('../lib/members');
+const recovery = require('../lib/recovery');
 const { db: defaultDb } = require('../lib/db');
 
 const RATE_LIMIT = { max: 20, windowMs: 10 * 60 * 1000, maxTracked: 2000 };
@@ -81,26 +82,36 @@ function createHandler(deps = {}) {
 
     const log = (f) => console.log(JSON.stringify({ src: 'join', ...f }));
     try {
-      // One person, one card: an email or a mobile number that is already on
-      // a card brings that card back (with its points) rather than a new one.
+      // One person, one card. An email or a mobile number that is already on
+      // a card never gets that card's link straight back (anyone who knew a
+      // friend's number could collect their points): a code goes to the
+      // email on the card instead, and /api/recover trades it for the link.
+      const existingCard = async (member) => {
+        const rec = deps.recovery || recovery;
+        const env = deps.env || process.env;
+        if (!rec.settings(env).enabled || !member.email) {
+          log({ event: 'join.existing', memberId: member.id, recovery: 'off' });
+          return send(res, 200, { ok: true, existing: true, recovery: false, message: 'That email or mobile number is already on a card. Please ask a member of staff to help you get it back.' }, req);
+        }
+        const r = await rec.startRecovery(member, { db, env });
+        log({ event: 'join.existing', memberId: member.id, recovery: r.sent ? 'sent' : r.reason });
+        return send(res, 200, { ok: true, existing: true, recovery: true, sent: r.sent, hint: r.hint || recovery.maskEmail(member.email) }, req);
+      };
       let member = await members.findByEmail(values.email, { db });
       if (!member) member = await members.findByPhone(values.phone, { db });
-      let existing = true;
-      if (!member) {
-        existing = false;
-        member = await members.createMember(values, { db });
-      }
-      log({ event: existing ? 'join.existing' : 'join.created', memberId: member.id, serial: member.pass_serial });
-      return send(res, existing ? 200 : 201, {
+      if (member) return existingCard(member);
+      member = await members.createMember(values, { db });
+      log({ event: 'join.created', memberId: member.id, serial: member.pass_serial });
+      return send(res, 201, {
         ok: true,
-        existing,
+        existing: false,
         member: { id: member.id, name: member.full_name, points: Number(member.points) || 0 },
         passUrl: passUrlFor(member), googleUrl: googleUrlFor(member, deps.env),
       }, req);
     } catch (err) {
       if (err.status === 409 || /duplicate key/i.test(String(err.message))) {
         const member = await members.findByEmail(values.email, { db }).catch(() => null);
-        if (member) return send(res, 200, { ok: true, existing: true, member: { id: member.id, name: member.full_name, points: Number(member.points) || 0 }, passUrl: passUrlFor(member), googleUrl: googleUrlFor(member, deps.env) }, req);
+        if (member) return send(res, 200, { ok: true, existing: true, recovery: false, message: 'That email is already on a card. Please ask a member of staff to help you get it back.' }, req);
       }
       log({ event: 'join.failed', status: err.status, message: err.message });
       return send(res, 502, { ok: false, error: 'db_error', message: 'Could not save your details. Please try again.' }, req);
@@ -110,4 +121,4 @@ function createHandler(deps = {}) {
 
 module.exports = createHandler();
 module.exports.createHandler = createHandler;
-module.exports._internals = { limited, passUrlFor, googleUrlFor, hits };
+module.exports._internals = { limited, passUrlFor, googleUrlFor, hits, send, clientKey, readBody, allowedOrigin };
