@@ -4,3 +4,8 @@ node_modules
 .env*.local
 .DS_Store
 .env*
+# .env* above matches .env.example, which is tracked and is the file CLAUDE.md
+# points at for the environment variables. Tracked files ignore .gitignore, so
+# nothing broke -- but it would have been silently un-addable if it ever left
+# the index.
+!.env.example

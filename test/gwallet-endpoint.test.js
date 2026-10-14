@@ -57,3 +57,47 @@ test('the Apple pass link sends an Android phone to the Google link, and only wh
   await h({ method: 'GET', query: { serial: 'LBM-HAXM9Z7KW4', t: 'tok' }, headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' } }, r);
   assert.equal(r.statusCode, 200, 'an iPhone still gets the .pkpass');
 });
+
+test('the ?qr=1 branch refuses to build a QR that leads nowhere', async () => {
+  // L9. This branch returned before any config check, so with
+  // PUBLIC_BASE_URL unset it served a 200 QR encoding a relative path that no
+  // phone camera can resolve -- and the desktop signup flow displayed it with
+  // no error anywhere. The pkpass branch below it does check; this one simply
+  // preceded the check.
+  const { createHandler: passRoute } = require('../api/pass/[serial]');
+  const deps = {
+    getBySerial: async (s) => (s === 'LBM-HAXM9Z7KW4' ? { ...member } : null),
+    QRCode: { toString: async (link) => `<svg>${link}</svg>` },
+    gwallet: { settings: () => ({ enabled: false }) },
+  };
+
+  const unset = passRoute({ ...deps, settings: () => ({ baseUrl: '' }) });
+  let r = res();
+  await unset({ method: 'GET', query: { serial: 'LBM-HAXM9Z7KW4', t: 'tok', qr: '1' }, headers: {} }, r);
+  assert.equal(r.statusCode, 503, 'no base url, no QR');
+  assert.deepEqual(r.body.missing, ['PUBLIC_BASE_URL']);
+
+  // With it set, the QR encodes an absolute link a camera can follow.
+  const ok = passRoute({ ...deps, settings: () => ({ baseUrl: 'https://lbm-loyalty.vercel.app' }) });
+  r = res();
+  r.end = function end(b) { this.body = b; };
+  await ok({ method: 'GET', query: { serial: 'LBM-HAXM9Z7KW4', t: 'tok', qr: '1' }, headers: {} }, r);
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.headers['Content-Type'], 'image/svg+xml');
+  assert.match(r.body, /^<svg>https:\/\/lbm-loyalty\.vercel\.app\/api\/pass\/LBM-HAXM9Z7KW4\?t=tok<\/svg>$/);
+});
+
+test('the pass links keep their bearer token out of any referrer', async () => {
+  // L2. ?t= is bearer-equivalent and already lands in browser history and
+  // access logs; it should not also travel in a Referer header.
+  const { createHandler: passRoute } = require('../api/pass/[serial]');
+  const w = world();
+  let r = res();
+  await w.handler({ method: 'GET', query: { serial: 'LBM-HAXM9Z7KW4', t: 'tok' }, headers: {} }, r);
+  assert.equal(r.headers['Referrer-Policy'], 'no-referrer', 'the Google Wallet link');
+
+  const pass = passRoute({ getBySerial: async () => null, gwallet: { settings: () => ({ enabled: false }) } });
+  r = res();
+  await pass({ method: 'GET', query: { serial: 'nope', t: 'x' }, headers: {} }, r);
+  assert.equal(r.headers['Referrer-Policy'], 'no-referrer', 'the Apple link, even on a 404');
+});

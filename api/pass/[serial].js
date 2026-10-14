@@ -14,9 +14,20 @@ const passLib = require('../../lib/pass');
 const gwallet = require('../../lib/gwallet');
 const { send, query } = require('../../lib/wallet');
 
+/**
+ * The download token is bearer-equivalent and travels in the query string, so
+ * it lands in browser history and access logs. Nothing here is HTML, so there
+ * are no sub-resources to leak a referrer to today -- this is in case that
+ * ever changes, and costs one header.
+ */
+function noReferrer(res) {
+  res.setHeader('Referrer-Policy', 'no-referrer');
+}
+
 function createHandler(deps = {}) {
   return async function handler(req, res) {
     if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return send(res, 405, { ok: false, error: 'method_not_allowed' }); }
+    noReferrer(res);
     const q = query(req);
     const serial = String(q.serial || '');
     const token = String(q.t || '');
@@ -40,8 +51,16 @@ function createHandler(deps = {}) {
     }
 
     if (q.qr) {
-      const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
-      const link = `${base}/api/pass/${encodeURIComponent(serial)}?t=${encodeURIComponent(token)}`;
+      // The pkpass branch below refuses to build without PUBLIC_BASE_URL;
+      // this branch returned before reaching that check, so with the variable
+      // unset it served a 200 QR encoding a relative path that no phone
+      // camera can resolve -- and the desktop signup flow showed it with no
+      // error anywhere. Same check, same source of truth.
+      const s = (deps.settings || passLib.settings)(deps.env || process.env);
+      if (!s.baseUrl) {
+        return send(res, 503, { ok: false, error: 'not_configured', message: 'PUBLIC_BASE_URL is not set, so the QR would not lead anywhere.', missing: ['PUBLIC_BASE_URL'] });
+      }
+      const link = `${s.baseUrl}/api/pass/${encodeURIComponent(serial)}?t=${encodeURIComponent(token)}`;
       const QRCode = deps.QRCode || require('qrcode');
       const svg = await QRCode.toString(link, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } });
       res.statusCode = 200;

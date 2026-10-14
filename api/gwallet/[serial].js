@@ -17,6 +17,9 @@ function createHandler(deps = {}) {
   const gw = deps.gwallet || gwallet;
   const db = deps.db || defaultDb;
   return async function handler(req, res) {
+    // The ?t= download token is bearer-equivalent and ends up in history and
+    // access logs; keep it out of any referrer too.
+    res.setHeader('Referrer-Policy', 'no-referrer');
     if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return send(res, 405, { ok: false, error: 'method_not_allowed' }); }
     const q = query(req);
     const serial = String(q.serial || '');

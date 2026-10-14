@@ -12,9 +12,11 @@
       "maxDuration": 60
     },
     "api/pass/*.js": {
+      "maxDuration": 60,
       "includeFiles": "{pass-template,certs}/**"
     },
     "api/wallet/v1/passes/*/*.js": {
+      "maxDuration": 60,
       "includeFiles": "{pass-template,certs}/**"
     }
   },
