@@ -121,3 +121,32 @@ test('syncAfterChange patches the card for a member who has one, and never throw
   assert.equal(await gw.syncAfterChange({ ...member, gwallet_object_id: OBJECT }, { env, db, fetchImpl: bad.fetchImpl, log: (x) => log.push(x) }), false);
   assert.ok(log.some((x) => x.warn === 'gwallet_update_failed' && x.status === 403));
 });
+
+test("an imported member's old PassKit id is never printed on the Android card", () => {
+  // M8. The PR's final commit guarded this on the Apple side (lib/pass.js)
+  // but not the Google one, so an imported member's card still printed their
+  // 22-character PassKit id under the new QR -- the exact "upgraded pass looks
+  // unchanged" confusion the guard was added to remove. accountId carries the
+  // same value and is user-visible on some Google surfaces.
+  const membersLib = require('../lib/members');
+  const passLib = require('../lib/pass');
+  const s = gw.settings(env);
+
+  const imported = { ...member, pass_serial: '16dm9KIQ7haLWTVgchJPHI' };
+
+  const importedCard = gw.buildObject(imported, s);
+  assert.equal(importedCard.barcode.alternateText, undefined, 'nothing is printed under the QR');
+  assert.ok(!JSON.stringify(importedCard).includes(imported.pass_serial), 'and the PassKit id is nowhere on the card');
+  assert.equal(importedCard.barcode.value, `LBM:${imported.id}`, 'the QR itself is still ours');
+
+  const nativeCard = gw.buildObject(member, s);
+  assert.equal(nativeCard.barcode.alternateText, 'LBM-HAXM9Z7KW4', 'our own short serial is still shown');
+  assert.equal(nativeCard.accountId, 'LBM-HAXM9Z7KW4');
+
+  // Both platforms agree now, which is the point of sharing the helper.
+  const applePass = (m) => passLib.buildPassJson(m, { ...passLib.settings(env), passTypeId: 'pass.test', teamId: 'T', baseUrl: 'https://x.test' });
+  assert.equal(applePass(imported).barcode.altText, undefined, 'the Apple side agrees');
+  assert.equal(applePass(member).barcode.altText, 'LBM-HAXM9Z7KW4');
+  assert.equal(membersLib.printableSerial(imported), null);
+  assert.equal(membersLib.printableSerial(member), 'LBM-HAXM9Z7KW4');
+});
