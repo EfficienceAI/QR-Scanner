@@ -447,6 +447,16 @@
   // first tap only arms it.
   let redeemArmed = false;
   let redeemArmTimer = null;
+  // The post-redeem cooldown timer, and which scan it belongs to.
+  //
+  // Comparing the QR string was not enough: "Next customer" then rescanning
+  // the *same* card restores currentQR, so a timer left over from the
+  // previous scan saw its own customer and re-enabled the button underneath
+  // a redemption that was still in flight -- two burns of the redeem cost for
+  // one drink. A counter is per *scan*, not per customer, so the same card
+  // twice is two different things.
+  let redeemCooldownTimer = null;
+  let scanGeneration = 0;
   // Long enough to read a prompt nobody has seen before, short enough that the
   // button is not left live while the next customer walks up.
   var REDEEM_CONFIRM_MS = 6000;
@@ -699,6 +709,9 @@
     // last one's points movements. The ledger is the durable record; this is a
     // glance at what just happened to the person in front of you.
     logEl.innerHTML = '';
+    scanGeneration += 1;
+    clearTimeout(redeemCooldownTimer);
+    redeemCooldownTimer = null;
     currentQR = ''; selectedPoints = 0;
     redeemBusy = false;
     pointsRequestId = null; redeemRequestId = null;
@@ -758,6 +771,9 @@
   }
   async function handleScan(data) {
     stopScanner();
+    scanGeneration += 1;
+    clearTimeout(redeemCooldownTimer);
+    redeemCooldownTimer = null;
     currentQR = data; selectedPoints = 0;
     redeemBusy = false;
     pointsRequestId = null; redeemRequestId = null;
@@ -871,6 +887,7 @@
     disarmRedeem();
     redeemBusy = true;
     var qr = currentQR;
+    var gen = scanGeneration;
     var pointsBefore = currentPoints;
     btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
     setStatus('Redeeming…', 'active');
@@ -900,8 +917,11 @@
         noteRedeemNow();
         if (!btnRedeem.hidden) {
           redeemBusy = true; btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeemed';
-          setTimeout(function () {
-            if (qr !== currentQR) return;
+          clearTimeout(redeemCooldownTimer);
+          redeemCooldownTimer = setTimeout(function () {
+            redeemCooldownTimer = null;
+            // Only this scan's cooldown may lift this scan's lock.
+            if (gen !== scanGeneration) return;
             redeemBusy = false; btnRedeem.disabled = false; btnRedeemText.textContent = redeemLabel();
           }, 1500);
         }

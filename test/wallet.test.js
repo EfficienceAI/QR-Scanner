@@ -92,3 +92,54 @@ test('latest pass: 401 without the token, 304 when unchanged, pkpass otherwise',
   r = res(); await h(req('GET', { passTypeId: 'pass.com.example.loyalty', serial: 'LBM-1' }, { authorization: 'ApplePass secret-token-1234567', 'if-modified-since': 'Mon, 05 Oct 2026 09:00:00 GMT' }), r);
   assert.equal(r.statusCode, 200); assert.equal(r.headers['Content-Type'], 'application/vnd.apple.pkpass'); assert.equal(r.headers['Last-Modified'], 'Mon, 05 Oct 2026 10:00:00 GMT');
 });
+
+test('the device log endpoint caps what one unauthenticated caller can write', async () => {
+  // L5. Unauthenticated is correct -- Apple's spec defines /v1/log that way,
+  // and a device with a broken pass may have no credential to use -- but it
+  // is a public, unthrottled write into logs that are billable by volume,
+  // and it shared src: 'wallet-service' with our own diagnostics, so device
+  // noise was indistinguishable from the real thing.
+  const logRoute = require('../api/wallet/v1/log');
+  const { entries, MAX_ENTRIES, MAX_ENTRY_CHARS } = logRoute._internals;
+
+  // Count is capped, and what was dropped is stated rather than silently lost.
+  const many = entries(Array.from({ length: 500 }, (_, i) => 'line ' + i));
+  assert.equal(many.kept.length, MAX_ENTRIES);
+  assert.equal(many.received, 500);
+  assert.equal(many.dropped, 500 - MAX_ENTRIES);
+
+  // Size is capped too: 20 entries of a megabyte each was the hole left by
+  // capping the count alone.
+  const huge = entries(['x'.repeat(100000)]);
+  assert.equal(huge.kept[0].length, MAX_ENTRY_CHARS + 1, 'truncated, with an ellipsis');
+  assert.equal(huge.truncated, 1);
+
+  // An object entry is serialised rather than dropped, and still capped.
+  const obj = entries([{ message: 'y'.repeat(100000) }]);
+  assert.ok(obj.kept[0].length <= MAX_ENTRY_CHARS + 1);
+
+  // Junk shapes do not throw.
+  for (const junk of [undefined, null, 'not an array', 42, {}]) {
+    assert.deepEqual(entries(junk).kept, [], JSON.stringify(junk) + ' is not a log array');
+  }
+
+  // The route answers 200 and writes under its own src, so device noise can
+  // be filtered without losing the service's diagnostics.
+  const lines = [];
+  const realLog = console.log;
+  console.log = (line) => lines.push(JSON.parse(line));
+  try {
+    const r = res();
+    await logRoute({ method: 'POST', body: { logs: ['pass could not be updated'] }, headers: {} }, r);
+    assert.equal(r.statusCode, 200);
+  } finally {
+    console.log = realLog;
+  }
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].src, 'wallet-device', 'not wallet-service, which is ours');
+  assert.deepEqual(lines[0].logs, ['pass could not be updated']);
+
+  const r2 = res();
+  await logRoute({ method: 'GET', headers: {} }, r2);
+  assert.equal(r2.statusCode, 405);
+});
