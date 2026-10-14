@@ -176,3 +176,24 @@ test('a native change is written back to PassKit only for a linked member and on
   r = res(); await h.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
   assert.equal(r.statusCode, 200, 'a PassKit failure never fails the scan');
 });
+
+test('a slow ledger cannot hold up a lookup for longer than the history deadline', async () => {
+  // M3. The lookup awaited the full ledger read before replying, which is the
+  // one thing CLAUDE.md says a ledger call must never do. With Supabase
+  // degraded that put the ledger's 4 s default on top of the member read, and
+  // staff who think the tap failed tap again. The history is now bounded and
+  // degrades to "not recorded" rather than delaying the balance.
+  const w = world({ points: 5 });
+  let askedTimeout = null;
+  w.deps.ledger.listMemberEvents = async (ids, opts) => {
+    askedTimeout = opts.timeoutMs;
+    const err = new Error('ledger timeout');
+    throw err;
+  };
+  const r = res();
+  await w.handler.handle(UUID, { action: 'lookup_customer', body: {}, cfg, res: r, log: () => {} });
+  assert.equal(r.statusCode, 200, 'the balance still goes out');
+  assert.equal(r.body.points, 5);
+  assert.equal(r.body.history.recorded, false, 'the history degrades rather than failing the scan');
+  assert.ok(askedTimeout > 0 && askedTimeout < 4000, `the read is bounded well inside the ledger default, got ${askedTimeout}`);
+});
