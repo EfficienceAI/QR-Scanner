@@ -27,6 +27,11 @@ const { db: defaultDb } = require('../../lib/db');
 const MAX_ROWS = 500;
 const LOOKUP_CHUNK = 100;
 const INSERT_CHUNK = 100;
+// How much of a file may have an unreadable points column before the whole
+// call is refused. A stray cell happens; a mostly-unreadable file is a broken
+// export, and the floor keeps a small file from being refused over one of them.
+const UNREADABLE_FRACTION = 0.1;
+const UNREADABLE_FLOOR = 2;
 
 function send(res, status, payload) {
   res.statusCode = status;
@@ -53,7 +58,27 @@ function chunks(arr, n) {
   return out;
 }
 
-/** Validate and normalise one exported row. Returns { ok, row } or { ok: false, reason }. */
+/**
+ * The exported balance, or null when the cell is blank or not a number.
+ *
+ * Never 0. CLAUDE.md's rule comes from the backfill -- "a zero would look
+ * like a real visit worth nothing" -- and the stakes are higher here, because
+ * this endpoint writes points as an absolute value rather than a delta. A
+ * renamed column in PassKit's export, or a cell reading "4 pts", used to
+ * become 0 and then be written over the customer's real balance, for every
+ * imported row in the file, reported as `updated`.
+ */
+function readPoints(value) {
+  if (value === '' || value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
+}
+
+/**
+ * Validate and normalise one exported row. Returns { ok, row, unreadablePoints }
+ * or { ok: false, reason }. `row.points` is null when the amount could not be
+ * read; no caller may write that as a balance.
+ */
 function prepare(input) {
   const passkitId = String(input.passkit_member_id || '').trim();
   if (!/^[A-Za-z0-9_-]{10,40}$/.test(passkitId)) return { ok: false, reason: 'bad passkit_member_id' };
@@ -61,10 +86,13 @@ function prepare(input) {
   if (fullName.length < 1) return { ok: false, reason: 'missing name' };
   const email = members.normalizeEmail(input.email);
   const phone = members.normalizePhone(input.phone);
-  const pointsRaw = input.points === '' || input.points == null ? 0 : Number(input.points);
-  const points = Number.isFinite(pointsRaw) ? Math.max(0, Math.round(pointsRaw)) : 0;
+  const points = readPoints(input.points);
   const serial = String(input.pass_serial || passkitId).trim();
-  return { ok: true, row: { passkit_member_id: passkitId, full_name: fullName.slice(0, 80), email, phone, points, pass_serial: serial } };
+  return {
+    ok: true,
+    unreadablePoints: points === null,
+    row: { passkit_member_id: passkitId, full_name: fullName.slice(0, 80), email, phone, points, pass_serial: serial },
+  };
 }
 
 function createHandler(deps = {}) {
@@ -114,7 +142,7 @@ function createHandler(deps = {}) {
     if (!list || !list.length || list.length > MAX_ROWS) return send(res, 400, { ok: false, error: 'invalid', message: `Send 1 to ${MAX_ROWS} members.` });
     const dryRun = body.dry_run === true;
 
-    const summary = { received: list.length, created: 0, updated: 0, unchanged: 0, linked: 0, skipped: 0, email_dropped: 0, dry_run: dryRun, problems: [] };
+    const summary = { received: list.length, created: 0, updated: 0, unchanged: 0, linked: 0, skipped: 0, email_dropped: 0, unreadable_points: 0, dry_run: dryRun, problems: [] };
     const problem = (id, reason) => { if (summary.problems.length < 50) summary.problems.push({ passkit_member_id: id || null, reason }); };
     const log = (f) => console.log(JSON.stringify({ src: 'admin-import', ...f }));
     const now = () => new Date().toISOString();
@@ -125,7 +153,28 @@ function createHandler(deps = {}) {
       for (const input of list) {
         const p = prepare(input);
         if (!p.ok) { summary.skipped += 1; problem(input && input.passkit_member_id, p.reason); continue; }
+        if (p.unreadablePoints) {
+          summary.unreadable_points += 1;
+          problem(p.row.passkit_member_id, 'points could not be read; no balance written for this row');
+        }
         rows.set(p.row.passkit_member_id, p.row);
+      }
+
+      // A missing or renamed points column makes every row unreadable at
+      // once. Each one is already handled safely below -- an existing balance
+      // is left alone, a new member is not created -- but a file that is
+      // mostly unreadable is a broken export, and the operator should hear it
+      // now rather than from a customer. Counts alone would not tell them:
+      // "updated: 300" looks like a healthy import either way.
+      const unreadableLimit = Math.max(UNREADABLE_FLOOR, Math.floor(rows.size * UNREADABLE_FRACTION));
+      if (summary.unreadable_points > unreadableLimit) {
+        log({ event: 'refused', reason: 'unreadable_points', ...summary, problems: summary.problems.length });
+        return send(res, 400, {
+          ok: false,
+          error: 'unreadable_points',
+          message: `${summary.unreadable_points} of ${rows.size} rows have an unreadable points column. Check the export's column names; nothing was written.`,
+          ...summary,
+        });
       }
       // 2. already imported: update what changed
       const existing = await byPasskitId([...rows.keys()]);
@@ -139,7 +188,8 @@ function createHandler(deps = {}) {
         const patch = {};
         if (cur.full_name !== row.full_name) patch.full_name = row.full_name;
         if ((cur.phone || null) !== (row.phone || null)) patch.phone = row.phone;
-        if (Number(cur.points) !== row.points) patch.points = row.points;
+        // null means "we could not read it", which is not a balance.
+        if (row.points !== null && Number(cur.points) !== row.points) patch.points = row.points;
         if (!Object.keys(patch).length) { summary.unchanged += 1; continue; }
         summary.updated += 1;
         if (!dryRun) {
@@ -167,6 +217,14 @@ function createHandler(deps = {}) {
             seen.add(row.email);
           }
         }
+        // Creating them at the column default would quietly start a
+        // long-standing customer from zero. Report it and let a fixed export
+        // create them on the next run.
+        if (row.points === null) {
+          summary.skipped += 1;
+          problem(row.passkit_member_id, 'not created: points could not be read, so their balance is unknown');
+          continue;
+        }
         toInsert.push(row);
       }
       // 4. create the rest
@@ -191,4 +249,4 @@ function createHandler(deps = {}) {
 
 module.exports = createHandler();
 module.exports.createHandler = createHandler;
-module.exports._internals = { prepare, inList };
+module.exports._internals = { prepare, inList, readPoints };
