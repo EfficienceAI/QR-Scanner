@@ -10,23 +10,31 @@ add stamps or redeem a free drink. The redeem cost is a server setting
 (`LOYALTY_REDEEM_COST`, default 9) — never a client constant.
 
 Deployed on Vercel as a static page plus Node functions. There is no framework
-and no bundler. There is exactly one runtime dependency, `@vercel/functions`,
-for the `waitUntil` that keeps after-reply work alive (see `lib/after.js`);
-`lib/after.js` falls back to the platform's request-context symbol if it is
-absent, so `npm test` still needs no install step. Keep the list at one: a new
-dependency on this hot path needs a reason as good as that one.
+and no bundler. There are three runtime dependencies and one dev dependency:
 
-Three systems hold data (the third is new and not yet wired to the scanner):
+| Package | Why |
+|---|---|
+| `@vercel/functions` | the `waitUntil` that keeps after-reply work alive (`lib/after.js`, which falls back to the platform's request-context symbol if the package is missing from the bundle) |
+| `passkit-generator` | signs the `.pkpass` |
+| `qrcode` | the SVG QR on the signup page's desktop view |
+| `node-forge` (dev) | the throwaway self-signed certificate the pass tests and the dev server sign with |
 
-- **PassKit** owns members and balances. Every balance shown or changed comes
-  from a PassKit call.
+`npm install` is required before the tests run: `test/pass.test.js` signs a
+real pass. The scanner itself ran with no dependencies at all until the native
+pass system arrived, and a new one on the scan hot path still needs a reason
+as good as `@vercel/functions` has.
+
+Three systems hold data:
+
+- **PassKit** owns the balance of every member who still carries a PassKit
+  pass. Every balance shown or changed for them comes from a PassKit call.
 - **Supabase** holds our own scan ledger (`scan_events`), which is the source
   of truth for "how many scans" and the foundation for moving off PassKit
   later. It is analytics, never a balance.
 - **Supabase `members`** holds *native* members (joined on `/join`, holding a
-  pass we signed). Their points live here. The scanner does not read it yet;
-  the QR on those passes is `LBM:<uuid>` so the two kinds can never be
-  confused with a PassKit id.
+  pass we signed) and owns their points. The scanner reads it: a `LBM:<uuid>`
+  QR is served from here and never touches PassKit, and the `LBM:` prefix is
+  what stops the two kinds ever being confused with a PassKit id.
 
 ## Layout
 
@@ -37,6 +45,11 @@ Three systems hold data (the third is new and not yet wired to the scanner):
 | `api/loyalty.js` | `lookup_customer`, `add_points`, `remove_points`, `redeem_points` |
 | `api/stats.js` | Counters and the time series behind the chart |
 | `api/admin/backfill.js` | One-off import of PassKit's event log (the Make.com era) |
+| `api/admin/import.js` | Brings PassKit members into the `members` table ahead of the switch-over |
+| `api/admin/points.js` | Staff correction of a native member's balance (atomic RPC) |
+| `api/admin/member.js` | Looks a native member up for staff, including their pass link |
+| `api/admin/refresh.js` | Re-pushes passes after an artwork or theme change |
+| `api/gwallet/[serial].js` | The Google Wallet "save" link for a member |
 | `lib/passkit.js` | PassKit Membership REST client (JWT signed per request) |
 | `lib/ledger.js` | PostgREST calls against `scan_events` with the service key |
 | `lib/time.js` | Timezone helpers, so buckets follow the shop's clock through DST |
@@ -47,16 +60,20 @@ Three systems hold data (the third is new and not yet wired to the scanner):
 | `api/pass/[serial].js` | The signed `.pkpass` (and an SVG QR of its link, `?qr=1`) |
 | `api/wallet/v1/**` | Apple's pass web service: device registration, "what changed", latest pass, logs |
 | `lib/db.js` | General PostgREST client (service key) for the members tables |
-| `lib/members.js` | Native members: validation, tokens, QR message `LBM:<uuid>`, points RPC, Wallet registrations |
+| `lib/members.js` | Native members: validation, tokens, QR message `LBM:<uuid>`, points RPC, Wallet registrations, `readAmount` |
+| `lib/native-scan.js` | The `LBM:` scan path: lookup, add, remove, redeem, and the PassKit mirror both ways |
+| `lib/gwallet.js` | Google Wallet: the loyalty class and object, and the JWT for the save link |
 | `lib/pass.js` | Builds `pass.json` from a member and signs the `.pkpass` (passkit-generator) |
 | `lib/apns.js` | Tells Wallet a pass changed (HTTP/2 push with the Pass Type ID certificate) |
 | `lib/wallet.js` | Shared helpers for the web service routes (ApplePass auth) |
-| `pass-template/` | Pass artwork; the files there are labelled placeholders |
+| `pass-template/` | Pass artwork, generated from `pass-art/` by `scripts/build-pass-art.py` |
+| `scripts/import-passkit.mjs` | Feeds `api/admin/import.js` from PassKit's CSV export |
+| `scripts/selfsigned-cert.js` | A throwaway certificate, so the pass suite and the dev server can sign without the real one |
 | `certs/AppleWWDRCAG4.pem` | Apple's public WWDR intermediate, needed to sign passes |
 | `docs/NATIVE-PASSES.md` | Setup guide and the list of placeholders for the native pass system |
 | `supabase/migrations/*.sql` | Table, indexes, RLS and the two RPCs the stats read |
 | `test/*.test.js` | `node --test`, no test framework |
-| `vercel.json` | `outputDirectory: public`, an **empty** `buildCommand` (which also suppresses framework detection), and 60s `maxDuration` for the backfill |
+| `vercel.json` | `outputDirectory: public`, an **empty** `buildCommand` (which also suppresses framework detection), 60s `maxDuration` for the backfill, the import and the scanner, `includeFiles` so the pass routes get the template and the certificates, and the host-scoped redirect of `/` to `/join/` |
 
 ## Rules that are easy to break
 
@@ -81,10 +98,32 @@ Three systems hold data (the third is new and not yet wired to the scanner):
   application-level authentication: the scanner has to work the instant a
   staff member picks the device up. Access control is the deployment's job
   (Vercel Deployment Protection, or simply who has the URL), so do not add a
-  passcode here without being asked. `/api/admin/backfill` is the exception
-  and keeps its `ADMIN_SECRET`.
-- **The native pass system is not integrated with the scanner yet** (by
-  decision). Do not route `LBM:` QR codes in `api/loyalty.js` until asked.
+  passcode here without being asked. `/api/admin/*` is the exception: every
+  one of those endpoints is gated on `ADMIN_SECRET` through
+  `lib/auth.js`'s `requireAdmin`, which also throttles guesses. They move
+  balances and expose pass links, so keep them that way.
+- **The native pass path is live.** `api/loyalty.js` routes a `LBM:<uuid>` QR
+  to `lib/native-scan.js`, which answers from the `members` table and never
+  calls PassKit. Both systems run at once during the overlap and mirror in
+  both directions: a PassKit scan of someone we imported updates their native
+  row (`mirrorLegacy`), and a native scan of someone linked to a PassKit
+  record sends the same earn or burn on to PassKit (`writeBack`). Neither
+  mirror may fail a scan, and neither may invent a balance.
+- **A balance that cannot be read must never be written.** This is the "null,
+  not 0" rule in the one place it can destroy something. `members.syncPoints`
+  and `/api/admin/import` write points as an *absolute* value rather than a
+  delta, so an unreadable amount coerced to `0` wipes a customer, and the
+  ledger holds the action's delta rather than the overwrite, so the old
+  balance cannot be recovered afterwards. Use `members.readAmount`, which
+  answers `null` for everything `Number()` quietly turns into `0` (`null`,
+  `''`, `[]`, `false`, `'n/a'`). A real `0` is a balance; "we could not read
+  it" is not.
+- **`/api/join` must not hand back an existing member.** It is public, and an
+  email address is not a secret. A known email gets
+  `{ ok: true, existing: true, message }` and nothing else: no `member.id`
+  (which *is* the QR payload), no `passUrl` (whose token downloads their
+  signed pass and with it their Apple credential), no name, no balance. Staff
+  have `GET /api/admin/member` for a customer who needs their card again.
 - **`SUPABASE_SERVICE_KEY` is server-side only.** It bypasses RLS; the page
   must never see it.
 - **Amounts that cannot be read are `null`, not `0`.** The backfill parses
@@ -108,9 +147,10 @@ Three systems hold data (the third is new and not yet wired to the scanner):
 ## Development
 
 ```sh
+npm install      # required: the pass tests sign a real .pkpass
 npm run verify   # unit tests, then end-to-end against a mock backend
 npm run dev      # the whole app on localhost:3000, nothing real is touched
-npm test         # unit tests alone (node --test, no framework, no install step)
+npm test         # unit tests alone (node --test, no test framework)
 ```
 
 `npm run dev` runs `scripts/dev-server.mjs`, which serves `public/` and
