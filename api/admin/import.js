@@ -67,11 +67,13 @@ function chunks(arr, n) {
  * renamed column in PassKit's export, or a cell reading "4 pts", used to
  * become 0 and then be written over the customer's real balance, for every
  * imported row in the file, reported as `updated`.
+ *
+ * members.readAmount is the shared predicate: Number() alone is no use here,
+ * since Number(null), Number('') and Number([]) are all 0.
  */
 function readPoints(value) {
-  if (value === '' || value == null) return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
+  const n = members.readAmount(value);
+  return n === null ? null : Math.max(0, Math.round(n));
 }
 
 /**

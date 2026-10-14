@@ -134,6 +134,25 @@ test('a PassKit scan is mirrored onto the imported member, and ignored for every
   assert.equal(await w.handler.mirrorLegacy({ passkitMemberId: '16dm9KIQ7haLWTVgchJPHI', balance: 7 }), false, 'skipped where the members database is not configured');
 });
 
+test('the mirror refuses a balance it cannot read, rather than writing a zero', async () => {
+  // H1. syncPoints is an absolute SET: mirroring an unreadable balance zeroed
+  // an imported member and pushed the zero to their phone, with the ledger
+  // holding only the action's delta so the old balance was unrecoverable.
+  for (const balance of [undefined, null, '', 'n/a', {}, NaN, [], 'abc']) {
+    const w = world({ points: 11, passkitId: '16dm9KIQ7haLWTVgchJPHI' });
+    const log = [];
+    const result = await w.handler.mirrorLegacy({ passkitMemberId: '16dm9KIQ7haLWTVgchJPHI', balance, log: (x) => log.push(x) });
+    assert.equal(result, false, `${JSON.stringify(balance)} must not be mirrored`);
+    assert.equal(w.member.points, 11, 'the balance is left at the last one we did read');
+    assert.deepEqual(w.pushes, [], 'and nothing is pushed to the phone');
+    assert.ok(log.some((x) => x.warn === 'mirror_skipped_unreadable_balance'), 'but it is reported');
+  }
+  // A real zero is a balance, not a failure to read one.
+  const w = world({ points: 11, passkitId: '16dm9KIQ7haLWTVgchJPHI' });
+  assert.equal(await w.handler.mirrorLegacy({ passkitMemberId: '16dm9KIQ7haLWTVgchJPHI', balance: 0 }), true);
+  assert.equal(w.member.points, 0);
+});
+
 test('a native change is written back to PassKit only for a linked member and only where PassKit keys exist', async () => {
   const calls = [];
   const fakePasskit = { earnPoints: async (ref, n) => { calls.push(['earn', ref.id, n]); return { points: 9 }; }, burnPoints: async (ref, n) => { calls.push(['burn', ref.id, n]); return { points: 0 }; } };

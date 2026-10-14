@@ -71,6 +71,37 @@ test('a PassKit QR still goes to PassKit, and the imported copy is mirrored afte
   assert.equal(ok.body.points, 0); assert.equal(w.member.points, 0); assert.equal(w.patches.length, 2); assert.equal(w.patches[1].last_visit_at, undefined);
 });
 
+test('an unreadable PassKit balance is not mirrored, so an imported member is never zeroed', async () => {
+  // H1, end to end. num() answers 0 for anything unreadable, and syncPoints
+  // is an absolute SET, so PassKit replying 200 with no usable `points` used
+  // to zero the imported member -- the longest-standing customers -- and push
+  // the zero to their phone. The ledger records the +1 delta, not the
+  // overwrite, so nobody could reconstruct the balance afterwards.
+  for (const unreadable of [undefined, null, '', 'n/a', {}]) {
+    const w = stubWorld();
+    w.member.points = 13;
+    const earn = global.fetch;
+    global.fetch = async (rawUrl, init = {}) => {
+      const p = new URL(String(rawUrl)).pathname;
+      if (p === '/members/member/points/earn') return { ok: true, status: 200, text: async () => JSON.stringify({ id: PK, points: unreadable }) };
+      return earn(rawUrl, init);
+    };
+    const r = await invoke({ action: 'add_points', qr_data: PK, points: 1, request_id: 'u' + String(unreadable) });
+    assert.equal(r.statusCode, 200, 'the scan still succeeds');
+    assert.equal(w.member.points, 13, `balance survived an unreadable ${JSON.stringify(unreadable)}`);
+    assert.ok(!w.patches.some((x) => x.points !== undefined), 'no balance was written at all');
+  }
+
+  // A readable 0 is a real balance and still mirrors.
+  const w = stubWorld();
+  w.member.points = 13; w.passkit[PK].points = 1;
+  const r = await invoke({ action: 'redeem_points', qr_data: PK, points_to_remove: 1, request_id: 'zero' });
+  assert.equal(r.statusCode, 409, 'below the redeem cost');
+  w.passkit[PK].points = 9;
+  await invoke({ action: 'redeem_points', qr_data: PK, points_to_remove: 9, request_id: 'zero2' });
+  assert.equal(w.member.points, 0, 'a genuine zero from PassKit is still mirrored');
+});
+
 test('a malformed LBM: QR is not a native scan', async () => {
   stubWorld();
   const r = await invoke({ action: 'lookup_customer', qr_data: 'LBM:not-a-uuid' });

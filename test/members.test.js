@@ -53,3 +53,36 @@ test('createMember inserts tokens and adjustPoints maps database errors', async 
   await assert.rejects(() => M.adjustPoints('uuid-1', -9, { db }), M.InsufficientPointsError);
   await assert.rejects(() => M.adjustPoints('missing', 1, { db }), M.NotFoundError);
 });
+
+test('readAmount is stricter than Number, so an unknown amount is null and never 0', () => {
+  // The rule is CLAUDE.md's: "amounts that cannot be read are null, not 0".
+  // Number() is no use for it -- Number(null), Number(''), Number([]) and
+  // Number(false) are all 0, and a 0 written over a real balance is the whole
+  // problem (H1, H2).
+  for (const v of [undefined, null, '', '   ', 'n/a', '4 pts', {}, [], [5], false, true, NaN, Infinity, -Infinity, () => 1]) {
+    assert.equal(M.readAmount(v), null, `${JSON.stringify(v) || String(v)} is not an amount`);
+  }
+  assert.equal(M.readAmount(0), 0, 'a real zero is an amount');
+  assert.equal(M.readAmount('0'), 0);
+  assert.equal(M.readAmount(13), 13);
+  assert.equal(M.readAmount('13'), 13);
+  assert.equal(M.readAmount(' 13 '), 13);
+  assert.equal(M.readAmount(2.6), 2.6, 'rounding is the caller\'s business');
+  assert.equal(M.readAmount(-4), -4, 'as is clamping');
+});
+
+test('syncPoints refuses to set a balance it cannot read', async () => {
+  // H1. This is the only absolute SET on a balance in the codebase, so it is
+  // the one call that can destroy one. It used to coerce anything unreadable
+  // to 0 with `Number(points) || 0` and write it.
+  const writes = [];
+  const db = { enabled: () => true, update: async (t, q, patch) => { writes.push(patch); return [{ id: 'uuid-1', ...patch }]; } };
+  for (const bad of [undefined, null, '', 'n/a', {}, [], NaN]) {
+    await assert.rejects(() => M.syncPoints('uuid-1', bad, { db }), TypeError, `${JSON.stringify(bad) || String(bad)} must be refused`);
+  }
+  assert.deepEqual(writes, [], 'and nothing reached the database');
+  const row = await M.syncPoints('uuid-1', 0, { db });
+  assert.equal(row.points, 0, 'a real zero is still written');
+  await M.syncPoints('uuid-1', '7.4', { db });
+  assert.equal(writes[1].points, 7, 'a readable amount is rounded and written');
+});

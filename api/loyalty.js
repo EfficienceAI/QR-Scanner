@@ -30,6 +30,18 @@ function num(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * The balance PassKit reported, or null when it cannot be read.
+ *
+ * num() answers 0 for anything unreadable. That is tolerable in the response
+ * the page displays, but it must not reach the legacy mirror: there the value
+ * is written over an imported member's row as an absolute balance, so an
+ * unreadable answer became a zeroed customer, pushed to their phone, with
+ * nothing in the ledger to reconstruct the old balance from. "Amounts that
+ * cannot be read are null, not 0" -- CLAUDE.md, and this is why.
+ */
+const readableBalance = members.readAmount;
+
 function settings() {
   return {
     redeemCost: positiveInt(process.env.LOYALTY_REDEEM_COST, 9),
@@ -355,7 +367,7 @@ module.exports = async function handler(req, res) {
           { action: 'add', memberId: ref.id || result.id || null, points, requestId },
           log
         ),
-        after(nativeScan.mirrorLegacy({ passkitMemberId: ref.id || result.id || null, balance, visited: true, log })),
+        after(nativeScan.mirrorLegacy({ passkitMemberId: ref.id || result.id || null, balance: readableBalance(result.points), visited: true, log })),
       ]);
     }
 
@@ -389,7 +401,7 @@ module.exports = async function handler(req, res) {
           { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
           log
         ),
-        after(nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance, log })),
+        after(nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance: readableBalance(result.points), log })),
       ]);
     }
 
@@ -418,7 +430,7 @@ module.exports = async function handler(req, res) {
           { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
           log
         ),
-        after(nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance, log })),
+        after(nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance: readableBalance(result.points), log })),
       ]);
     }
 
@@ -451,4 +463,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt, requestKey };
+module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt, requestKey, readableBalance };
