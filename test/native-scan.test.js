@@ -197,3 +197,63 @@ test('a slow ledger cannot hold up a lookup for longer than the history deadline
   assert.equal(r.body.history.recorded, false, 'the history degrades rather than failing the scan');
   assert.ok(askedTimeout > 0 && askedTimeout < 4000, `the read is bounded well inside the ledger default, got ${askedTimeout}`);
 });
+
+test('the four after-reply jobs are armed before the flush, and one failing does not release the rest', async () => {
+  // M4 and L1. settle() registered its work *after* send(res, ...), so the
+  // guarantee rested on nothing suspending between the two statements -- with
+  // four jobs across four modules, one of them making two sequential network
+  // calls. Losing it means a Wallet pass stuck at the old balance, which is
+  // the symptom this path was built to fix.
+  //
+  // And Promise.all lets a single rejection resolve after()'s promise while
+  // the other three are still in flight, so the platform may freeze the
+  // invocation mid-push. allSettled cannot. The job rejecting here is
+  // record(), a bare delegation whose "never throws" is a contract written in
+  // lib/ledger.js -- which is exactly why settle() must not depend on it.
+  const sym = Symbol.for('@vercel/request-context');
+  const before = globalThis[sym];
+  const registered = [];
+  globalThis[sym] = { get: () => ({ waitUntil: (p) => registered.push(p) }) };
+  try {
+    const member = { id: UUID, full_name: 'Yunus Tufail', points: 1, status: 'active', pass_serial: 'LBM-HAXM9Z7KW4', passkit_member_id: null, created_at: '2026-10-09T15:12:36Z' };
+    let release; const hung = new Promise((ok) => { release = ok; });
+    let pushFinished = 0;
+    const handler = createHandler({
+      members: {
+        getById: async () => ({ ...member }),
+        adjustPoints: async (id, d) => { member.points += d; return member.points; },
+      },
+      ledger: { recordEvent: async () => { throw new Error('ledger down'); }, listMemberEvents: async () => [] },
+      pushPassUpdate: async () => { await hung; pushFinished += 1; return { sent: 1 }; },
+      gwallet: { syncAfterChange: async () => false },
+      db: { enabled: () => true },
+      env: {},
+    });
+
+    let armedAtFlush = null;
+    const r = res();
+    r.end = function end(b) { this.ended = true; this.body = b ? JSON.parse(b) : null; armedAtFlush = registered.length; };
+
+    const done = handler.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r, log: () => {} });
+    await new Promise((ok) => setImmediate(ok));
+
+    assert.equal(r.ended, true, 'the reply went out while the push hangs');
+    assert.equal(r.body.points, 2);
+    assert.equal(armedAtFlush, 1, 'the work was registered before res.end() flushed, not after');
+
+    // The ledger rejection has happened by now. The registered promise must
+    // still be pending, because the push has not finished.
+    let settledEarly = false;
+    registered[0].then(() => { settledEarly = true; });
+    await new Promise((ok) => setImmediate(ok));
+    assert.equal(settledEarly, false, 'a rejected job must not release the platform while a push is in flight');
+    assert.equal(pushFinished, 0);
+
+    release();
+    await done;
+    assert.equal(pushFinished, 1, 'the push completed before the invocation could be frozen');
+  } finally {
+    if (before === undefined) delete globalThis[sym];
+    else globalThis[sym] = before;
+  }
+});

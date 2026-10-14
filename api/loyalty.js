@@ -278,6 +278,28 @@ function send(res, status, payload) {
  * this promise directly. On Vercel, waitUntil is what keeps it alive.
  * recordEvent never throws.
  */
+/**
+ * Arm the legacy mirror for after the reply.
+ *
+ * Same discipline as respondThenRecord, and for the same reason: call it
+ * *before* send() so the registration does not depend on nobody adding an
+ * `await` between the two lines, and let the work itself start in a microtask
+ * once the response has flushed. Passing the promise straight to after()
+ * would have started the PassKit and Supabase calls before the reply went
+ * out; passing a thunk would too, since after() invokes it immediately.
+ */
+function mirrorAfterReply(passkitMemberId, result, log, visited = false) {
+  return after(
+    Promise.resolve().then(() => nativeScan.mirrorLegacy({
+      passkitMemberId,
+      balance: readableBalance(result.points),
+      visited,
+      log,
+    })),
+    { log }
+  );
+}
+
 function respondThenRecord(res, payload, event, log) {
   const recorded = after(Promise.resolve().then(() => ledger.recordEvent(event, { log })), { log });
   send(res, 200, payload);
@@ -360,6 +382,7 @@ module.exports = async function handler(req, res) {
       const result = await passkit.earnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ added: points, points: balance });
+      const mirrored = mirrorAfterReply(ref.id || result.id || null, result, log, true);
       return Promise.all([
         respondThenRecord(
           res,
@@ -367,7 +390,7 @@ module.exports = async function handler(req, res) {
           { action: 'add', memberId: ref.id || result.id || null, points, requestId },
           log
         ),
-        after(nativeScan.mirrorLegacy({ passkitMemberId: ref.id || result.id || null, balance: readableBalance(result.points), visited: true, log })),
+        mirrored,
       ]);
     }
 
@@ -394,6 +417,7 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, points, eventDetails(action, points));
       const balance = num(result.points);
       log({ removed: points, points: balance });
+      const mirrored = mirrorAfterReply(before.id || ref.id || null, result, log);
       return Promise.all([
         respondThenRecord(
           res,
@@ -401,7 +425,7 @@ module.exports = async function handler(req, res) {
           { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
           log
         ),
-        after(nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance: readableBalance(result.points), log })),
+        mirrored,
       ]);
     }
 
@@ -423,6 +447,7 @@ module.exports = async function handler(req, res) {
       const result = await passkit.burnPoints(ref, cost, eventDetails(action, cost));
       const balance = num(result.points);
       log({ redeemed: cost, requested, points: balance });
+      const mirrored = mirrorAfterReply(before.id || ref.id || null, result, log);
       return Promise.all([
         respondThenRecord(
           res,
@@ -430,7 +455,7 @@ module.exports = async function handler(req, res) {
           { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
           log
         ),
-        after(nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance: readableBalance(result.points), log })),
+        mirrored,
       ]);
     }
 

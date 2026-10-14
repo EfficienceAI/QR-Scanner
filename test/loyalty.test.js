@@ -108,14 +108,15 @@ test('the ledger write is armed with waitUntil before the reply goes out', async
     assert.equal(registered.length, 1, 'the ledger write is handed to the platform exactly once');
     assert.equal(registeredAtFlush, 1, 'and it is armed before res.end() flushes, not after');
 
-    // A mutation adds a second job, the legacy mirror. The ledger write must
-    // still be armed before the flush.
+    // A mutation adds a second job, the legacy mirror. Both are armed before
+    // the flush -- the mirror used to be registered after it (M4), which is
+    // how a Wallet pass ended up stuck at the old balance.
     registered.length = 0;
     registeredAtFlush = null;
     await handler({ method: 'POST', headers: {}, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
     assert.equal(res.statusCode, 200);
     assert.equal(registered.length, 2, 'a mutation registers the ledger write and the legacy mirror');
-    assert.ok(registeredAtFlush >= 1, 'the ledger write is armed before res.end() flushes, not after');
+    assert.equal(registeredAtFlush, 2, 'and both are armed before res.end() flushes, not after');
     await Promise.all(registered);
   } finally {
     if (before === undefined) delete globalThis[sym];
