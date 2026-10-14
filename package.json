@@ -5,7 +5,7 @@
   "engines": {
     "node": ">=20"
   },
-  "description": "Loyalty scanner for La Bottega Milanese: static page + Vercel API routes (PassKit balances, own scan ledger in Supabase).",
+  "description": "La Bottega Milanese loyalty: scanner (PassKit, legacy) and the native pass system (signup page, members database, signed Apple Wallet passes, pass web service).",
   "scripts": {
     "test": "node --test",
     "dev": "node scripts/dev-server.mjs --mock",
@@ -13,6 +13,8 @@
     "verify": "node --test && node scripts/dev-server.mjs --mock --selftest"
   },
   "dependencies": {
-    "@vercel/functions": "^3.9.11"
+    "@vercel/functions": "^3.9.11",
+    "passkit-generator": "^3.6.1",
+    "qrcode": "^1.5.4"
   }
 }

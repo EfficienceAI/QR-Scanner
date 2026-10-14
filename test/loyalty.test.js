@@ -79,6 +79,9 @@ test('the ledger write is armed with waitUntil before the reply goes out', async
   // Without this the write is lost whenever Vercel freezes the function at
   // res.end(), and the scan is undercounted. Deleting the after() wrapper in
   // respondThenRecord, or moving it below send(), must fail here.
+  //
+  // The native path's own jobs (push, mirror, Google Wallet) are armed by
+  // settle() in lib/native-scan.js and covered in test/native-scan.test.js.
   const db = { M1: { id: 'M1', programId: 'P', points: 4, person: {} } };
   const passkit = fakePassKit(db);
   global.fetch = async (url, init) => {
@@ -98,10 +101,21 @@ test('the ledger write is armed with waitUntil before the reply goes out', async
       setHeader(k, v) { this.headers[k] = v; },
       end(x) { this.body = x ? JSON.parse(x) : null; registeredAtFlush = registered.length; },
     };
-    await handler({ method: 'POST', headers: {}, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
+    // lookup_customer registers the ledger write and nothing else, so the
+    // counts here pin respondThenRecord exactly.
+    await handler({ method: 'POST', headers: {}, body: { action: 'lookup_customer', qr_data: 'M1' } }, res);
     assert.equal(res.statusCode, 200);
     assert.equal(registered.length, 1, 'the ledger write is handed to the platform exactly once');
     assert.equal(registeredAtFlush, 1, 'and it is armed before res.end() flushes, not after');
+
+    // A mutation adds a second job, the legacy mirror. The ledger write must
+    // still be armed before the flush.
+    registered.length = 0;
+    registeredAtFlush = null;
+    await handler({ method: 'POST', headers: {}, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(registered.length, 2, 'a mutation registers the ledger write and the legacy mirror');
+    assert.ok(registeredAtFlush >= 1, 'the ledger write is armed before res.end() flushes, not after');
     await Promise.all(registered);
   } finally {
     if (before === undefined) delete globalThis[sym];
