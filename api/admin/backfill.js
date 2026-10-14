@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * POST /api/admin/backfill?offset=0&pages=3[&dryRun=1]
+ * POST /api/admin/backfill?offset=0&pages=3[&dryRun=1][&programId=…]   (?programs=1 lists the programmes)
  * One-off: copies PassKit's programme event log (stamps and redemptions from
  * before our ledger went live) into scan_events, so "total" includes the
  * Make.com era. Idempotent (PassKit event id is the unique key). Gated by
@@ -65,7 +65,13 @@ function pointsFromEvent(e) {
   return pointsFromNotes(e && e.notes);
 }
 
-async function programId() {
+/**
+ * Which programme to read. The account holds more than one, and the first
+ * one listed is not the one the shop's members belong to, so the caller can
+ * name it (?programId=) or set PASSKIT_PROGRAM_ID; ?programs=1 lists them.
+ */
+async function programId(requested) {
+  if (requested) return requested;
   if (process.env.PASSKIT_PROGRAM_ID) return process.env.PASSKIT_PROGRAM_ID;
   const programs = await passkit.listPrograms();
   if (!programs.length) throw new Error('no PassKit programme found');
@@ -88,10 +94,21 @@ module.exports = async function handler(req, res) {
   let offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
   const pages = Math.min(10, Math.max(1, parseInt(url.searchParams.get('pages') || '3', 10) || 3));
   const dryRun = /^(1|true|yes)$/i.test(url.searchParams.get('dryRun') || '');
+  const requestedProgram = String(url.searchParams.get('programId') || '').trim();
+  if (requestedProgram && !/^[A-Za-z0-9_-]{10,40}$/.test(requestedProgram)) return send(res, 400, { ok: false, error: 'invalid', message: 'programId looks wrong.' });
   const started = Date.now();
 
+  if (/^(1|true|yes)$/i.test(url.searchParams.get('programs') || '')) {
+    try {
+      const programs = await passkit.listPrograms();
+      return send(res, 200, { ok: true, programs: programs.map((p) => ({ id: p.id, name: p.name || null, created: p.created || null })) });
+    } catch (err) {
+      return send(res, 502, { ok: false, error: 'passkit_error', message: err.message });
+    }
+  }
+
   try {
-    const pid = await programId();
+    const pid = await programId(requestedProgram);
     // Never import anything our live ledger has already recorded itself.
     const totals = await ledger.getTotals();
     const cutoff = totals.liveSince ? Date.parse(totals.liveSince) : Date.now();
