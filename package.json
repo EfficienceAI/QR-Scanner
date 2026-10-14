@@ -8,5 +8,8 @@
     "dev": "node scripts/dev-server.mjs --mock",
     "dev:live": "node scripts/dev-server.mjs",
     "verify": "node --test && node scripts/dev-server.mjs --mock --selftest"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.9.11"
   }
 }
