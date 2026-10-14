@@ -19,6 +19,12 @@ and no bundler. There are three runtime dependencies and one dev dependency:
 | `qrcode` | the SVG QR on the signup page's desktop view |
 | `node-forge` (dev) | the throwaway self-signed certificate the pass tests and the dev server sign with |
 
+`passkit-generator` brings three high-severity advisories (`joi` and
+`node-forge`) whose only offered remedy is a breaking downgrade.
+`scripts/audit-check.mjs`, which `npm run verify` ends with, holds the
+reachability trace for each one and a review date; it fails on any advisory
+not assessed there, so a new one surfaces by itself.
+
 `npm install` is required before the tests run: `test/pass.test.js` signs a
 real pass. The scanner itself ran with no dependencies at all until the native
 pass system arrived, and a new one on the scan hot path still needs a reason
@@ -68,6 +74,7 @@ Three systems hold data:
 | `lib/wallet.js` | Shared helpers for the web service routes (ApplePass auth) |
 | `pass-template/` | Pass artwork, generated from `pass-art/` by `scripts/build-pass-art.py` |
 | `scripts/import-passkit.mjs` | Feeds `api/admin/import.js` from PassKit's CSV export |
+| `scripts/audit-check.mjs` | `npm audit` against the assessed advisories, with the reason and review date for each |
 | `scripts/selfsigned-cert.js` | A throwaway certificate, so the pass suite and the dev server can sign without the real one |
 | `certs/AppleWWDRCAG4.pem` | Apple's public WWDR intermediate, needed to sign passes |
 | `docs/NATIVE-PASSES.md` | Setup guide and the list of placeholders for the native pass system |
@@ -151,6 +158,7 @@ npm install      # required: the pass tests sign a real .pkpass
 npm run verify   # unit tests, then end-to-end against a mock backend
 npm run dev      # the whole app on localhost:3000, nothing real is touched
 npm test         # unit tests alone (node --test, no test framework)
+npm run audit    # npm audit against the advisories we have assessed
 ```
 
 `npm run dev` runs `scripts/dev-server.mjs`, which serves `public/` and

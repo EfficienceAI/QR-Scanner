@@ -10,7 +10,8 @@
     "test": "node --test",
     "dev": "node scripts/dev-server.mjs --mock",
     "dev:live": "node scripts/dev-server.mjs",
-    "verify": "node --test && node scripts/dev-server.mjs --mock --selftest"
+    "audit": "node scripts/audit-check.mjs",
+    "verify": "node --test && node scripts/dev-server.mjs --mock --selftest && node scripts/audit-check.mjs"
   },
   "dependencies": {
     "@vercel/functions": "^3.9.11",
