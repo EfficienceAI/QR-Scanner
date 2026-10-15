@@ -1,0 +1,66 @@
+'use strict';
+
+/**
+ * GET /u/:pid   (rewritten to /api/u/:pid)   -> the customer's new card, one tap
+ *
+ * The link on the back of the old PassKit pass is `.../u/${pid}`, which
+ * PassKit fills in with that pass's own id, the same value the pass's QR
+ * carries and the serial our imported record keeps. So the tap identifies
+ * the customer without a form: an iPhone gets the signed .pkpass, which
+ * Wallet swaps in for the old card, and an Android phone goes to Google
+ * Wallet. Anyone else, or an id we do not know, lands on the upgrade page
+ * with the email-and-code flow.
+ *
+ * The id is as private as the old pass itself: PassKit serves that pass to
+ * anyone who knows it, so this hands out nothing new.
+ */
+
+const members = require('../../lib/members');
+const passLib = require('../../lib/pass');
+const gwallet = require('../../lib/gwallet');
+const { db: defaultDb } = require('../../lib/db');
+const { send, query } = require('../../lib/wallet');
+
+const FALLBACK = '/upgrade';
+
+function createHandler(deps = {}) {
+  const db = deps.db || defaultDb;
+  const env = deps.env || process.env;
+  return async function handler(req, res) {
+    if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return send(res, 405, { ok: false, error: 'method_not_allowed' }); }
+    const pid = String(query(req).pid || '').trim();
+    const go = (location) => { res.statusCode = 302; res.setHeader('Location', location); res.setHeader('Cache-Control', 'no-store'); return res.end(); };
+    if (!/^[A-Za-z0-9_-]{10,40}$/.test(pid)) return go(FALLBACK);
+    const log = (f) => console.log(JSON.stringify({ src: 'upgrade-link', pid, ...f }));
+    let member;
+    try {
+      member = await members.findByPasskitId(pid, { db });
+      if (!member) member = await members.getBySerial(pid, { db });
+    } catch (err) {
+      log({ event: 'db_error', status: err.status, message: err.message });
+      return go(FALLBACK);
+    }
+    if (!member || member.status !== 'active') { log({ event: 'unknown' }); return go(FALLBACK); }
+    const ua = String((req.headers && req.headers['user-agent']) || '');
+    if (/Android/i.test(ua)) {
+      if (!(deps.gwallet || gwallet).settings(env).enabled) return go(FALLBACK);
+      log({ event: 'android', memberId: member.id });
+      return go(`/api/gwallet/${encodeURIComponent(member.pass_serial)}?t=${encodeURIComponent(member.download_token)}`);
+    }
+    try {
+      const buf = await (deps.buildPkpass || passLib.buildPkpass)(member);
+      log({ event: 'pass', memberId: member.id, serial: member.pass_serial });
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
+      res.setHeader('Content-Disposition', 'inline; filename="la-bottega-milanese.pkpass"');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.end(buf);
+    } catch (err) {
+      log({ event: 'build_failed', message: err.message });
+      return go(FALLBACK);
+    }
+  };
+}
+
+module.exports = createHandler();
+module.exports.createHandler = createHandler;

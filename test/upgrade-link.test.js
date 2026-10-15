@@ -1,0 +1,38 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createHandler } = require('../api/u/[pid]');
+
+const PK = '16dm9KIQ7haLWTVgchJPHI';
+const member = { id: '85c54ace-a2ed-428e-8edf-caa8168f2569', full_name: 'Yunus Tufail', points: 5, status: 'active', pass_serial: PK, passkit_member_id: PK, download_token: 'tok' };
+function res() { return { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.raw = b; } }; }
+function world({ found = true, status = 'active', google = true } = {}) {
+  const db = { enabled: () => true, selectOne: async (table, q) => (found && (q.includes(`passkit_member_id=eq.${PK}`) || q.includes(`pass_serial=eq.${PK}`)) ? { ...member, status } : null) };
+  return createHandler({ db, env: {}, gwallet: { settings: () => ({ enabled: google }) }, buildPkpass: async (m) => Buffer.from('pkpass-for-' + m.id) });
+}
+
+test('an iPhone tapping its pass id gets the new pass straight away', async () => {
+  const r = res();
+  await world()({ method: 'GET', query: { pid: PK }, headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X)' } }, r);
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.headers['Content-Type'], 'application/vnd.apple.pkpass');
+  assert.equal(String(r.raw), 'pkpass-for-' + member.id);
+});
+
+test('an Android phone is sent to its Google Wallet card', async () => {
+  const r = res();
+  await world()({ method: 'GET', query: { pid: PK }, headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/120 Mobile' } }, r);
+  assert.equal(r.statusCode, 302);
+  assert.equal(r.headers.Location, `/api/gwallet/${PK}?t=tok`);
+});
+
+test('unknown, malformed, inactive or Google-off cases fall back to the upgrade page', async () => {
+  for (const [h, req] of [
+    [world({ found: false }), { method: 'GET', query: { pid: PK }, headers: {} }],
+    [world(), { method: 'GET', query: { pid: 'x' }, headers: {} }],
+    [world({ status: 'disabled' }), { method: 'GET', query: { pid: PK }, headers: {} }],
+    [world({ google: false }), { method: 'GET', query: { pid: PK }, headers: { 'user-agent': 'Android' } }],
+  ]) {
+    const r = res(); await h(req, r);
+    assert.equal(r.statusCode, 302); assert.equal(r.headers.Location, '/upgrade');
+  }
+});
