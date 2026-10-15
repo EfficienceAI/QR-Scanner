@@ -31,6 +31,28 @@
       ],
       "destination": "/join/",
       "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "labottegamilanesesignup.co.uk"
+        }
+      ],
+      "destination": "/join/",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.labottegamilanesesignup.co.uk"
+        }
+      ],
+      "destination": "/join/",
+      "permanent": false
     }
   ]
 }

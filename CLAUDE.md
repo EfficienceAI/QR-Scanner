@@ -25,6 +25,12 @@ and no bundler. There are three runtime dependencies and one dev dependency:
 reachability trace for each one and a review date; it fails on any advisory
 not assessed there, so a new one surfaces by itself.
 
+One external service beyond PassKit, Supabase and Google Wallet: **Resend**,
+called over `fetch` (no npm package) to email a recovery code when someone
+has lost their pass. Without `RESEND_API_KEY` and `RESEND_FROM` the recovery
+path simply turns itself off and the signup page says to ask a member of
+staff, so nothing else breaks.
+
 `npm install` is required before the tests run: `test/pass.test.js` signs a
 real pass. The scanner itself ran with no dependencies at all until the native
 pass system arrived, and a new one on the scan hot path still needs a reason
@@ -69,6 +75,8 @@ Three systems hold data:
 | `lib/members.js` | Native members: validation, tokens, QR message `LBM:<uuid>`, points RPC, Wallet registrations, `readAmount` |
 | `lib/native-scan.js` | The `LBM:` scan path: lookup, add, remove, redeem, and the PassKit mirror both ways |
 | `lib/gwallet.js` | Google Wallet: the loyalty class and object, and the JWT for the save link |
+| `lib/recovery.js` | Lost-pass recovery: a six-digit code emailed via Resend, hashed at rest, with a resend throttle and an attempt cap |
+| `api/recover.js` | Trades a valid recovery code for the pass link |
 | `lib/pass.js` | Builds `pass.json` from a member and signs the `.pkpass` (passkit-generator) |
 | `lib/apns.js` | Tells Wallet a pass changed (HTTP/2 push with the Pass Type ID certificate) |
 | `lib/wallet.js` | Shared helpers for the web service routes (ApplePass auth) |
@@ -125,12 +133,18 @@ Three systems hold data:
   answers `null` for everything `Number()` quietly turns into `0` (`null`,
   `''`, `[]`, `false`, `'n/a'`). A real `0` is a balance; "we could not read
   it" is not.
-- **`/api/join` must not hand back an existing member.** It is public, and an
-  email address is not a secret. A known email gets
-  `{ ok: true, existing: true, message }` and nothing else: no `member.id`
-  (which *is* the QR payload), no `passUrl` (whose token downloads their
-  signed pass and with it their Apple credential), no name, no balance. Staff
-  have `GET /api/admin/member` for a customer who needs their card again.
+- **`/api/join` must not hand back an existing member.** It is public, and
+  neither an email address nor a mobile number is a secret. An email *or*
+  number already on a card gets `{ ok: true, existing: true }` and nothing
+  else: no `member.id` (which *is* the QR payload), no `passUrl` (whose token
+  downloads their signed pass and with it their Apple credential), no name,
+  no balance. One person, one card.
+
+  To get a card back, `lib/recovery.js` emails a six-digit code to the address
+  *on the card* and `/api/recover` trades it for the link — so control of the
+  inbox is the proof, rather than knowledge of the address. Where
+  `RESEND_API_KEY`/`RESEND_FROM` are unset the customer is sent to the
+  counter, where staff have `GET /api/admin/member`.
 - **`SUPABASE_SERVICE_KEY` is server-side only.** It bypasses RLS; the page
   must never see it.
 - **Amounts that cannot be read are `null`, not `0`.** The backfill parses

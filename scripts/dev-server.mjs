@@ -193,6 +193,8 @@ const NATIVE = [];
 const REGS = [];
 // Google Wallet classes and objects, keyed by id.
 const GWALLET = { loyaltyClass: new Map(), loyaltyObject: new Map() };
+// Emails "sent" through the Resend mock.
+const EMAILS = [];
 function postgrestFilter(url) {
   const out = [];
   for (const [k, v] of url.searchParams.entries()) {
@@ -302,6 +304,9 @@ function installMockFetch() {
       return mockMembersApi(p, url, init, body, prefer, reply);
     }
 
+    // ---- Resend (recovery codes)
+    if (url.hostname === 'api.resend.com') { EMAILS.push(body); return reply(200, { id: 'email_' + EMAILS.length }); }
+
     // ---- Google Wallet (token exchange + Wallet Objects API)
     if (url.hostname === 'oauth2.googleapis.com') return reply(200, { access_token: 'mock-google-token', expires_in: 3600, token_type: 'Bearer' });
     if (url.hostname === 'walletobjects.googleapis.com') {
@@ -361,6 +366,9 @@ if (MOCK) {
   process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://mock.supabase.co';
   process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'mock-service-key';
   process.env.ADMIN_SECRET = process.env.ADMIN_SECRET || 'mock-admin-secret';
+  // Pass recovery emails land in the EMAILS array instead of Resend.
+  process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'mock-resend-key';
+  process.env.RESEND_FROM = process.env.RESEND_FROM || 'La Bottega Milanese <loyalty@example.com>';
   // Google Wallet with a throwaway service account: the JWTs are signed for
   // real, the API calls land on the mock below.
   process.env.GOOGLE_WALLET_ISSUER_ID = process.env.GOOGLE_WALLET_ISSUER_ID || '3388000000000000001';
@@ -393,6 +401,7 @@ const ROUTES = {
   '/api/admin/backfill': 'api/admin/backfill.js',
   '/api/admin/import': 'api/admin/import.js',
   '/api/admin/member': 'api/admin/member.js',
+  '/api/recover': 'api/recover.js',
 };
 
 // Everything else under api/ is matched Vercel-style: [name].js segments are
@@ -587,12 +596,15 @@ async function selftest(base) {
   // ledger write is handed to waitUntil, it is simply lost and the scan is
   // undercounted -- silently, which is why this is asserted here and not just
   // in the unit tests.
-  // A PassKit mutation arms two jobs: the ledger write and the legacy mirror.
+  // A PassKit mutation carries two jobs -- the ledger write and the legacy
+  // mirror -- on a single registration (respondThenRecord's `alsoAfter`).
+  // That the mirror really runs is checked further down, where an imported
+  // member's balance is compared against PassKit after a scan.
   const registeredBefore = afterRegistered.length;
   const armed = await post({ action: 'add_points', qr_data: 'M1000', points: 1 });
   const armedCount = afterRegistered.length - registeredBefore;
   check('a scan registers its ledger write with the platform',
-    armed.status === 200 && armedCount === 2, `HTTP ${armed.status}, registered ${armedCount}`);
+    armed.status === 200 && armedCount === 1, `HTTP ${armed.status}, registered ${armedCount}`);
   await Promise.all(afterRegistered.slice(registeredBefore));
 
   console.log('\n  H3 / L8: the history import');
@@ -681,6 +693,26 @@ async function selftest(base) {
   const again = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: [{ passkit_member_id: 'M1000000000', full_name: 'Imported Person', email: 'imported@example.com', points: 2 }] }) });
   const againBody = await again.json();
   check('re-importing updates rather than duplicates', again.status === 200 && againBody.updated === 1 && againBody.created === 0 && imported.points === 2, JSON.stringify(againBody));
+
+  console.log('\n  Lost your pass: a code to the email on the card, never the link itself');
+  const rejoin = await realFetch(base + '/api/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ full_name: 'Someone Else', email: 'other@example.com', phone: '07700 900123' }) });
+  const rejoinBody = await rejoin.json();
+  check('joining with a number already on a card does not hand the card over', rejoin.status === 200 && rejoinBody.existing === true && rejoinBody.recovery === true && !rejoinBody.passUrl, JSON.stringify(rejoinBody).slice(0, 160));
+  const mail = EMAILS[EMAILS.length - 1];
+  const codeMatch = mail && /\b(\d{6})\b/.exec(String(mail.text || ''));
+  check('a six-digit code was emailed to the address on the card', Boolean(codeMatch) && mail.to[0] === 'selftest@example.com', JSON.stringify(mail && { to: mail.to, subject: mail.subject }));
+  const wrong = await realFetch(base + '/api/recover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '07700 900123', code: codeMatch && codeMatch[1] === '000000' ? '111111' : '000000' }) });
+  check('a wrong code is refused', wrong.status === 400, 'HTTP ' + wrong.status);
+  const right = await realFetch(base + '/api/recover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'selftest@example.com', code: codeMatch ? codeMatch[1] : '' }) });
+  const rightBody = await right.json();
+  check('the right code returns the card, with its points', right.status === 200 && rightBody.recovered === true && typeof rightBody.passUrl === 'string' && rightBody.member.points === native.points, JSON.stringify(rightBody).slice(0, 160));
+  const oldLink = await realFetch(base + joined.passUrl);
+  check('the old link stopped working once the card was recovered', oldLink.status === 404, 'HTTP ' + oldLink.status);
+  const newLink = await realFetch(base + rightBody.passUrl);
+  check('the new link serves the pass', newLink.status === 200 && String(newLink.headers.get('content-type')).includes('vnd.apple.pkpass'), 'HTTP ' + newLink.status);
+  const unknown = await realFetch(base + '/api/recover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'nobody@example.com' }) });
+  const unknownBody = await unknown.json();
+  check('an unknown email gets the same answer as a known one', unknown.status === 200 && unknownBody.sent === true && unknownBody.hint === null, JSON.stringify(unknownBody));
 
   console.log(`\n  ${passed} passed, ${failures.length} failed\n`);
   if (failures.length) {

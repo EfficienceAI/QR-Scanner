@@ -281,3 +281,36 @@ test('a stalled database tells staff to try again, not that the deployment is br
   assert.equal(r.statusCode, 503);
   assert.equal(r.body.error, 'not_configured');
 });
+
+test('the after-reply work has not started by the time the reply flushes', async () => {
+  // The other half of the guarantee. Arming before send() is necessary but
+  // not sufficient: if the work also *began* before send(), it would delay
+  // the reply, which is the thing respond-then-record exists to prevent. The
+  // microtask is what separates the two, so assert the separation directly.
+  const sym = Symbol.for('@vercel/request-context');
+  const before = globalThis[sym];
+  const registered = [];
+  globalThis[sym] = { get: () => ({ waitUntil: (p) => registered.push(p) }) };
+  try {
+    const w = world({ points: 1 });
+    let started = false;
+    w.deps.ledger.recordEvent = async (e) => { started = true; w.events.push(e); return true; };
+    let registeredAtFlush = null;
+    let startedAtFlush = null;
+    const r = {
+      statusCode: 0,
+      headers: {},
+      setHeader(k, v) { this.headers[k] = v; },
+      end(b) { this.body = b ? JSON.parse(b) : null; registeredAtFlush = registered.length; startedAtFlush = started; },
+    };
+    await w.handler.handle(UUID, { action: 'add_points', body: { points: 1 }, cfg, res: r });
+    assert.equal(registeredAtFlush, 1, 'armed before res.end() flushed');
+    assert.equal(startedAtFlush, false, 'but the work had not started yet: it never delays the reply');
+    await Promise.all(registered);
+    assert.equal(started, true, 'and it does run once the reply is out');
+    assert.equal(w.events.length, 1);
+  } finally {
+    if (before === undefined) delete globalThis[sym];
+    else globalThis[sym] = before;
+  }
+});
