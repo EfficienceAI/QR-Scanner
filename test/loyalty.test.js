@@ -79,6 +79,9 @@ test('the ledger write is armed with waitUntil before the reply goes out', async
   // Without this the write is lost whenever Vercel freezes the function at
   // res.end(), and the scan is undercounted. Deleting the after() wrapper in
   // respondThenRecord, or moving it below send(), must fail here.
+  //
+  // The native path's own jobs (push, mirror, Google Wallet) are armed by
+  // settle() in lib/native-scan.js and covered in test/native-scan.test.js.
   const db = { M1: { id: 'M1', programId: 'P', points: 4, person: {} } };
   const passkit = fakePassKit(db);
   global.fetch = async (url, init) => {
@@ -91,6 +94,10 @@ test('the ledger write is armed with waitUntil before the reply goes out', async
   const before = globalThis[sym];
   const registered = [];
   globalThis[sym] = { get: () => ({ waitUntil: (p) => registered.push(p) }) };
+  const nativeScan = require('../lib/native-scan');
+  const realMirror = nativeScan.mirrorLegacy;
+  const mirrored = [];
+  nativeScan.mirrorLegacy = async (args) => { mirrored.push(args); return true; };
   try {
     let registeredAtFlush = null;
     const res = {
@@ -98,14 +105,34 @@ test('the ledger write is armed with waitUntil before the reply goes out', async
       setHeader(k, v) { this.headers[k] = v; },
       end(x) { this.body = x ? JSON.parse(x) : null; registeredAtFlush = registered.length; },
     };
-    await handler({ method: 'POST', headers: {}, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
+    // lookup_customer registers the ledger write and nothing else, so the
+    // counts here pin respondThenRecord exactly.
+    await handler({ method: 'POST', headers: {}, body: { action: 'lookup_customer', qr_data: 'M1' } }, res);
     assert.equal(res.statusCode, 200);
     assert.equal(registered.length, 1, 'the ledger write is handed to the platform exactly once');
     assert.equal(registeredAtFlush, 1, 'and it is armed before res.end() flushes, not after');
+
+    // A mutation carries a second job, the legacy mirror, folded into the
+    // same registration via respondThenRecord's `alsoAfter`. One waitUntil
+    // entry, two jobs -- and it is armed before the flush, where the mirror
+    // used to be registered after it (M4), which is how a Wallet pass ended
+    // up stuck at the old balance.
+    registered.length = 0;
+    registeredAtFlush = null;
+    await handler({ method: 'POST', headers: {}, body: { action: 'add_points', qr_data: 'M1', points: 3 } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(registered.length, 1, 'both jobs ride on one registration');
+    assert.equal(registeredAtFlush, 1, 'armed before res.end() flushes, not after');
+
+    // The count alone would not notice `alsoAfter` being dropped, so check
+    // the mirror actually ran inside that registration.
     await Promise.all(registered);
+    assert.equal(mirrored.length, 1, 'the legacy mirror ran as part of the registered work');
+    assert.equal(mirrored[0].balance, 7, 'with the balance PassKit reported, read strictly');
   } finally {
     if (before === undefined) delete globalThis[sym];
     else globalThis[sym] = before;
+    nativeScan.mirrorLegacy = realMirror;
     process.env.SUPABASE_URL = ''; process.env.SUPABASE_SERVICE_KEY = '';
   }
 });

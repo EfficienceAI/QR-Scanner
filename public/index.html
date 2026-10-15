@@ -440,7 +440,6 @@
   // One redemption per scan. Set on success and cleared only by the next scan,
   // so a balance that is still above the cost cannot re-arm the gold button
   // under the word "Redeemed".
-  let redeemLocked = false;
   let redeemBusy = false;
   // Burning points is the one irreversible action here, and the button appears
   // about a second into the lookup -- growing .actions by roughly 60px, so it
@@ -448,6 +447,16 @@
   // first tap only arms it.
   let redeemArmed = false;
   let redeemArmTimer = null;
+  // The post-redeem cooldown timer, and which scan it belongs to.
+  //
+  // Comparing the QR string was not enough: "Next customer" then rescanning
+  // the *same* card restores currentQR, so a timer left over from the
+  // previous scan saw its own customer and re-enabled the button underneath
+  // a redemption that was still in flight -- two burns of the redeem cost for
+  // one drink. A counter is per *scan*, not per customer, so the same card
+  // twice is two different things.
+  let redeemCooldownTimer = null;
+  let scanGeneration = 0;
   // Long enough to read a prompt nobody has seen before, short enough that the
   // button is not left live while the next customer walks up.
   var REDEEM_CONFIRM_MS = 6000;
@@ -528,14 +537,23 @@
     return typeof payload.points === 'number' && Number.isFinite(payload.points) ? payload.points : null;
   }
 
+  /** How many free drinks the balance covers right now. */
+  function drinksAvailable(points) {
+    return typeof points === 'number' && points >= Cfg.redeemCost ? Math.floor(points / Cfg.redeemCost) : 0;
+  }
+  function redeemLabel() {
+    var n = drinksAvailable(currentPoints);
+    return n > 1 ? 'Redeem free drink (' + n + ' available)' : 'Redeem free drink';
+  }
   function setPointsDisplay(points, message) {
     currentPoints = points;
+    var n = drinksAvailable(points);
     pointsValue.textContent = points === null ? '—' : String(points);
-    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (points >= Cfg.redeemCost ? 'A free drink is available.' : (Cfg.redeemCost - points) + ' more to a free drink.'));
-    btnRedeem.hidden = !(typeof points === 'number' && points >= Cfg.redeemCost);
+    pointsCopy.textContent = message || (points === null ? 'Points unavailable.' : (n > 1 ? n + ' free drinks available.' : n === 1 ? 'A free drink is available.' : (Cfg.redeemCost - points) + ' more to a free drink.'));
+    btnRedeem.hidden = !(n > 0);
     if (!btnRedeem.hidden) {
-      btnRedeem.disabled = redeemLocked || redeemBusy;
-      if (!redeemLocked && !redeemBusy && !redeemArmed) btnRedeemText.textContent = 'Redeem free drink';
+      btnRedeem.disabled = redeemBusy;
+      if (!redeemBusy && !redeemArmed) btnRedeemText.textContent = redeemLabel();
     }
   }
 
@@ -691,8 +709,11 @@
     // last one's points movements. The ledger is the durable record; this is a
     // glance at what just happened to the person in front of you.
     logEl.innerHTML = '';
+    scanGeneration += 1;
+    clearTimeout(redeemCooldownTimer);
+    redeemCooldownTimer = null;
     currentQR = ''; selectedPoints = 0;
-    redeemLocked = false; redeemBusy = false;
+    redeemBusy = false;
     pointsRequestId = null; redeemRequestId = null;
     disarmRedeem();
     document.getElementById('pointsInput').value = '';
@@ -750,8 +771,11 @@
   }
   async function handleScan(data) {
     stopScanner();
+    scanGeneration += 1;
+    clearTimeout(redeemCooldownTimer);
+    redeemCooldownTimer = null;
     currentQR = data; selectedPoints = 0;
-    redeemLocked = false; redeemBusy = false;
+    redeemBusy = false;
     pointsRequestId = null; redeemRequestId = null;
     disarmRedeem();
     resetCustomerCard(data);
@@ -850,12 +874,11 @@
     btnRedeem.classList.remove('confirm');
     if (!redeemArmed) return;
     redeemArmed = false;
-    if (!redeemLocked && !redeemBusy && !btnRedeem.hidden) btnRedeemText.textContent = 'Redeem free drink';
+    if (!redeemBusy && !btnRedeem.hidden) btnRedeemText.textContent = redeemLabel();
   }
 
   async function sendRedeem() {
     if (redeemBusy) return;
-    if (redeemLocked) { showToast('Already redeemed. Scan again for another.', 'error'); return; }
     if (typeof currentPoints !== 'number' || currentPoints < Cfg.redeemCost) { showToast('Needs ' + Cfg.redeemCost + ' points to redeem.', 'error'); return; }
     if (!redeemArmed) {
       armRedeem();
@@ -864,6 +887,7 @@
     disarmRedeem();
     redeemBusy = true;
     var qr = currentQR;
+    var gen = scanGeneration;
     var pointsBefore = currentPoints;
     btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeeming…';
     setStatus('Redeeming…', 'active');
@@ -885,10 +909,22 @@
         if (!stillSameCustomer) return; // another customer is on screen now
         var remainingPoints = extractPoints(data);
         if (remainingPoints === null) remainingPoints = pointsBefore - Cfg.redeemCost;
-        redeemLocked = true;
+        // Another drink can follow straight away while the balance still
+        // covers one (30 points is three drinks, no rescan), each with its
+        // own tap-and-confirm. The button rests on "Redeemed" for a moment
+        // first, so one confirmed tap cannot roll into the next.
         setPointsDisplay(remainingPoints);
-        btnRedeemText.textContent = 'Redeemed';
         noteRedeemNow();
+        if (!btnRedeem.hidden) {
+          redeemBusy = true; btnRedeem.disabled = true; btnRedeemText.textContent = 'Redeemed';
+          clearTimeout(redeemCooldownTimer);
+          redeemCooldownTimer = setTimeout(function () {
+            redeemCooldownTimer = null;
+            // Only this scan's cooldown may lift this scan's lock.
+            if (gen !== scanGeneration) return;
+            redeemBusy = false; btnRedeem.disabled = false; btnRedeemText.textContent = redeemLabel();
+          }, 1500);
+        }
       } else {
         // The server says exactly what is wrong ("Customer has 7 points, needs
         // 9 to redeem") and returns the true balance. Both were discarded, so
@@ -898,7 +934,7 @@
         addLog('Redeem failed', 'fail', 'HTTP ' + resp.status);
         setStatus(why, 'error');
         if (!stillSameCustomer) return;
-        btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
+        btnRedeem.disabled = false; btnRedeemText.textContent = redeemLabel();
         if (data && typeof data.points === 'number') setPointsDisplay(data.points);
       }
     } catch (err) {
@@ -906,7 +942,7 @@
       addLog('Redeem error', 'fail', err.message);
       setStatus('Network error', 'error');
       redeemBusy = false;
-      btnRedeem.disabled = false; btnRedeemText.textContent = 'Redeem free drink';
+      btnRedeem.disabled = false; btnRedeemText.textContent = redeemLabel();
     }
   }
   function resetAndScan() {

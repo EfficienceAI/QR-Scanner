@@ -139,3 +139,45 @@ test('the API takes no application-level auth, which is deliberate', () => {
   assert.doesNotMatch(SCRIPT, /passcode/i);
   assert.doesNotMatch(HTML, /X-Staff-Passcode/i);
 });
+
+test('the post-redeem cooldown cannot be lifted by a timer from an earlier scan', () => {
+  // L4. The 1500ms re-arm timer replaced a hard per-scan lock, and nothing
+  // ever cancelled it. Redeem at t0 schedules a re-enable at t0+1.5s; staff
+  // tap "Next customer" and rescan the *same* card, which restores
+  // currentQR; they arm and confirm a second redemption at t0+1.0s, still in
+  // flight; at t0+1.5s the stale timer sees qr === currentQR, clears
+  // redeemBusy and re-enables the button, so a third confirm can fire while
+  // the second is unanswered -- two burns of the redeem cost for one drink.
+  //
+  // The QR string cannot distinguish two scans of one card, so the guard is a
+  // per-scan counter, and the timer is cancelled when a scan session ends.
+
+  // The cooldown timer is held, not fired and forgotten.
+  assert.match(SCRIPT, /redeemCooldownTimer\s*=\s*setTimeout\(/, 'the cooldown timer is not tracked');
+
+  // Both places that end a scan session cancel it and move the generation on.
+  const bodyOf = (name) => {
+    const at = SCRIPT.indexOf('function ' + name + '(');
+    assert.ok(at > 0, name + ' is not declared');
+    const end = SCRIPT.indexOf('\n  }', at);
+    assert.ok(end > at, name + ' has no closing brace at function indentation');
+    return SCRIPT.slice(at, end);
+  };
+  for (const fn of ['clearCustomer', 'handleScan']) {
+    const body = bodyOf(fn);
+    assert.match(body, /clearTimeout\(redeemCooldownTimer\)/, fn + '() leaves the cooldown timer running');
+    assert.match(body, /scanGeneration \+= 1/, fn + '() does not start a new scan generation');
+  }
+
+  // The callback is gated on the generation, not on the QR string.
+  const cooldown = /redeemCooldownTimer = setTimeout\(function \(\) \{([\s\S]*?)\}, 1500\);/.exec(SCRIPT);
+  assert.ok(cooldown, 'the cooldown callback is not where this test expects it');
+  assert.match(cooldown[1], /gen\s*!==\s*scanGeneration/, 'the stale-timer guard is not the generation counter');
+  assert.doesNotMatch(cooldown[1], /qr\s*!==\s*currentQR/, 'the QR string cannot tell two scans of one card apart');
+  assert.match(cooldown[1], /redeemBusy\s*=\s*false/, 'this is still the code that lifts the lock');
+
+  // And the generation it compares against is captured before the await, next
+  // to the QR it already captured.
+  assert.match(SCRIPT, /var qr = currentQR;\s*\n\s*var gen = scanGeneration;/,
+    'the generation must be captured with the QR, before the request goes out');
+});

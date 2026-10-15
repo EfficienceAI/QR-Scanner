@@ -14,6 +14,8 @@
 
 const passkit = require('../lib/passkit');
 const ledger = require('../lib/ledger');
+const members = require('../lib/members');
+const nativeScan = require('../lib/native-scan');
 const { after } = require('../lib/after');
 
 const SOURCE_TAG = 'loyalty-scanner';
@@ -27,6 +29,18 @@ function num(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
+
+/**
+ * The balance PassKit reported, or null when it cannot be read.
+ *
+ * num() answers 0 for anything unreadable. That is tolerable in the response
+ * the page displays, but it must not reach the legacy mirror: there the value
+ * is written over an imported member's row as an absolute balance, so an
+ * unreadable answer became a zeroed customer, pushed to their phone, with
+ * nothing in the ledger to reconstruct the old balance from. "Amounts that
+ * cannot be read are null, not 0" -- CLAUDE.md, and this is why.
+ */
+const readableBalance = members.readAmount;
 
 function settings() {
   return {
@@ -264,8 +278,20 @@ function send(res, status, payload) {
  * this promise directly. On Vercel, waitUntil is what keeps it alive.
  * recordEvent never throws.
  */
-function respondThenRecord(res, payload, event, log) {
-  const recorded = after(Promise.resolve().then(() => ledger.recordEvent(event, { log })), { log });
+function respondThenRecord(res, payload, event, log, alsoAfter) {
+  // `alsoAfter` (optional, a function) is more after-reply work folded into
+  // the same registration: the PassKit-to-members mirror during the overlap.
+  //
+  // allSettled, not all: all rejects on the first rejection, after() catches
+  // that, its promise resolves, and the platform may freeze the invocation
+  // while the other job is still in flight. recordEvent is documented never
+  // to throw and mirrorLegacy catches its own errors, so the two behave the
+  // same today -- but that is an invariant written in two other files, and
+  // allSettled does not depend on it.
+  const recorded = after(
+    Promise.resolve().then(() => Promise.allSettled([ledger.recordEvent(event, { log }), alsoAfter ? alsoAfter() : null])),
+    { log }
+  );
   send(res, 200, payload);
   return recorded;
 }
@@ -289,6 +315,11 @@ module.exports = async function handler(req, res) {
   const started = Date.now();
   const log = (extra) =>
     console.log(JSON.stringify({ src: SOURCE_TAG, action, ref, ms: Date.now() - started, ...extra }));
+
+  // Our own passes carry "LBM:<member id>" in the QR and never touch
+  // PassKit; everything else is a PassKit pass and takes the path below.
+  const nativeId = members.memberIdFromQr(body.qr_data);
+  if (nativeId) return nativeScan.handle(nativeId, { action, body, cfg, res, requestId, log });
 
   if (!ref) {
     return send(res, 400, { ok: false, error: 'missing_qr_data', message: 'Scan a customer QR code first.' });
@@ -345,7 +376,8 @@ module.exports = async function handler(req, res) {
         res,
         { ok: true, action, added: points, points: balance },
         { action: 'add', memberId: ref.id || result.id || null, points, requestId },
-        log
+        log,
+        () => nativeScan.mirrorLegacy({ passkitMemberId: ref.id || result.id || null, balance: readableBalance(result.points), visited: true, log })
       );
     }
 
@@ -376,7 +408,8 @@ module.exports = async function handler(req, res) {
         res,
         { ok: true, action, removed: points, points: balance },
         { action: 'remove', memberId: before.id || ref.id || null, points, requestId },
-        log
+        log,
+        () => nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance: readableBalance(result.points), log })
       );
     }
 
@@ -402,7 +435,8 @@ module.exports = async function handler(req, res) {
         res,
         { ok: true, action, redeemed: cost, points: balance },
         { action: 'redeem', memberId: before.id || ref.id || null, points: cost, requestId },
-        log
+        log,
+        () => nativeScan.mirrorLegacy({ passkitMemberId: before.id || ref.id || null, balance: readableBalance(result.points), log })
       );
     }
 
@@ -435,4 +469,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt, requestKey };
+module.exports._internals = { memberRefFromQr, summarizeMember, summarizeHistory, humanizeTier, positiveInt, requestKey, readableBalance };
