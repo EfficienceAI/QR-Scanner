@@ -694,6 +694,33 @@ async function selftest(base) {
   const againBody = await again.json();
   check('re-importing updates rather than duplicates', again.status === 200 && againBody.updated === 1 && againBody.created === 0 && imported.points === 2, JSON.stringify(againBody));
 
+  // A whole batch dropping to zero is what a dead points column looks like
+  // from the endpoint's side: every value readable, nothing unreadable, and
+  // the summary would otherwise say `updated: 30`.
+  const zeroBatch = Array.from({ length: 30 }, (_, i) => ({
+    passkit_member_id: 'Z' + String(i + 1).padStart(4, '0') + '0000000',
+    full_name: 'Zero Test ' + (i + 1),
+    email: `zero${i + 1}@example.com`,
+    points: 6 + i,
+  }));
+  const seedZero = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: zeroBatch }) });
+  const seedZeroBody = await seedZero.json();
+  check('a batch of members with balances imports', seedZero.status === 200 && seedZeroBody.created === 30, JSON.stringify(seedZeroBody).slice(0, 160));
+  const wipe = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: zeroBatch.map((m) => ({ ...m, points: 0 })) }) });
+  const wipeBody = await wipe.json();
+  const survived = zeroBatch.every((m) => {
+    const row = NATIVE.find((n) => n.passkit_member_id === m.passkit_member_id);
+    return row && Number(row.points) === m.points;
+  });
+  check('an import that would zero the whole batch is refused, and nothing is written',
+    wipe.status === 400 && wipeBody.error === 'mass_zeroing' && wipeBody.would_zero === 30 && survived,
+    `HTTP ${wipe.status} ${JSON.stringify(wipeBody).slice(0, 140)} survived=${survived}`);
+  const oneRedeemed = await realFetch(base + '/api/admin/import', { method: 'POST', headers: admin, body: JSON.stringify({ members: zeroBatch.map((m, i) => ({ ...m, points: i === 0 ? 0 : m.points })) }) });
+  const oneBody = await oneRedeemed.json();
+  check('but one member redeeming down to zero still goes through, and is counted',
+    oneRedeemed.status === 200 && oneBody.would_zero === 1 && oneBody.updated === 1,
+    JSON.stringify(oneBody).slice(0, 160));
+
   console.log('\n  Lost your pass: a code to the email on the card, never the link itself');
   const rejoin = await realFetch(base + '/api/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ full_name: 'Someone Else', email: 'other@example.com', phone: '07700 900123' }) });
   const rejoinBody = await rejoin.json();
