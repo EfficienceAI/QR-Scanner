@@ -96,7 +96,19 @@ the icon (the crest alone on black) at every size Apple wants.
   back `null`. The first page also pushes the Google Wallet card design (the class),
   which is the only thing that can change an Android card's appearance or re-submit
   a class stuck `UNDER_REVIEW`; `{ class: true }` does just that and touches no passes.
-- `POST /api/admin/import { members: [...], dry_run }` brings PassKit members into `members` (up to 500 a call). Keyed on the PassKit member id, so re-running updates points and never duplicates; someone who already joined natively with the same email is linked, not duplicated. `scripts/import-passkit.mjs` feeds it from PassKit's CSV export.
+- `POST /api/admin/import { members: [...], dry_run }` brings PassKit members into `members`
+  (up to 500 a call). Keyed on the PassKit member id, so re-running updates points and never
+  duplicates; someone who already joined natively with the same email is linked, not duplicated.
+  `scripts/import-passkit.mjs` feeds it from PassKit's CSV export.
+
+  Points are written as an **absolute** value, so a re-run can lower a balance as easily as
+  raise it, and two guards sit in front of that. An amount that cannot be read is never
+  written, and past 10% of the rows the batch is refused (`unreadable_points`). A batch that
+  would write more than half of its existing non-zero balances down to zero is refused too
+  (`would_zero`, `error: mass_zeroing`) -- that is the one a dead points column trips, since
+  every value in it reads as a perfectly valid `0`. Both counts are reported on a dry run as
+  well, which matters because a dry run otherwise shows counts and not values: `updated: 5000`
+  reads the same whether balances went up or to zero.
 
 ## The scanner and the overlap period
 

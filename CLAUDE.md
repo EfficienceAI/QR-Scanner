@@ -133,6 +133,20 @@ Three systems hold data:
   answers `null` for everything `Number()` quietly turns into `0` (`null`,
   `''`, `[]`, `false`, `'n/a'`). A real `0` is a balance; "we could not read
   it" is not.
+
+  The import endpoint cannot enforce that on its own, because a `0` that
+  arrives as a readable number is indistinguishable from a customer who has
+  nothing. PassKit's export writes no `"0"` at all -- a member on nothing has
+  a blank cell, 1,657 of 5,271 on the switch-day export -- so
+  `scripts/import-passkit.mjs` has to decide what a blank means, and it reads
+  one as zero *only when the points column carries a value somewhere*. A
+  column that is present but empty throughout is treated as unreadable, the
+  same as a renamed one. Behind that, `/api/admin/import` refuses any batch
+  that would write more than half of its existing non-zero balances down to
+  zero, and reports `would_zero` either way. Both guards are deliberately
+  loose: the first version of the unreadable check refused the real
+  switch-day import, and blocking a legitimate import is worse than letting
+  an odd small batch through.
 - **`/api/join` must not hand back an existing member.** It is public, and
   neither an email address nor a mobile number is a secret. An email *or*
   number already on a card gets `{ ok: true, existing: true }` and nothing
