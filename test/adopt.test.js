@@ -39,3 +39,46 @@ test('an email already on a native card is linked rather than duplicated; an unr
   assert.equal(db.rows.length, 1, 'no second card');
   assert.equal(db.rows[0].points, 3, 'the native balance is untouched');
 });
+
+test('a balance PassKit does not give us is never written as zero, and no card is issued', async () => {
+  // Number() answers 0 for every one of these and the column is
+  // `integer not null default 0`, so both writing it and leaving it out hand
+  // a customer with stamps a card showing none. The card is the thing this
+  // function issues, so there is no later chance to notice.
+  for (const points of [undefined, null, '', 'n/a', false, [], -1, 2.5]) {
+    const db = fakeDb();
+    const m = await adoptFromPassKit(PK, { db, pk: pk({ id: PK, points, person: { forename: 'Marco', surname: 'Rossi', emailAddress: 'marco@example.it' } }) });
+    assert.equal(m, null, 'refused: ' + JSON.stringify(points));
+    assert.equal(db.rows.length, 0, 'no card issued for ' + JSON.stringify(points));
+  }
+  // A real 0 is a balance, and so is a number that arrives as a string.
+  for (const points of [0, '0', 14, '14']) {
+    const db = fakeDb();
+    const m = await adoptFromPassKit(PK, { db, pk: pk({ id: PK, points, person: { forename: 'Marco', surname: 'Rossi', emailAddress: 'marco@example.it' } }) });
+    assert.equal(m && m.points, Number(points), 'accepted: ' + JSON.stringify(points));
+  }
+});
+
+test('the till hands over the balance it has already read, so an odd PassKit record does not block adoption', async () => {
+  // lib/native-scan.js checks the scan balance with readAmount before it gets
+  // here, so passing it means a PassKit member object with nothing readable on
+  // it still does not cost that customer their adoption at the counter.
+  const db = fakeDb();
+  const m = await adoptFromPassKit(PK, { db, points: 9, pk: pk({ id: PK, points: null, person: { displayName: 'Marco Rossi' } }) });
+  assert.equal(m.points, 9);
+  // A supplied balance that cannot be read is refused in the same way.
+  const db2 = fakeDb();
+  assert.equal(await adoptFromPassKit(PK, { db: db2, points: '', pk: pk({ id: PK, points: 7, person: {} }) }), null);
+  assert.equal(db2.rows.length, 0);
+});
+
+test('an email already on another PassKit member card is not handed over', async () => {
+  // Two PassKit members sharing an email address: the import drops the second
+  // and reports it. Returning the first card here would hand this caller a
+  // pass that is not theirs, so the only safe answer is nobody.
+  const db = fakeDb([{ id: 'other1', email: 'marco@example.it', full_name: 'Marco', points: 3, pass_serial: 'OTHERPASSKITID00', passkit_member_id: 'OTHERPASSKITID00' }]);
+  const m = await adoptFromPassKit(PK, { db, pk: pk({ id: PK, points: 4, person: { emailAddress: 'marco@example.it' } }) });
+  assert.equal(m, null);
+  assert.equal(db.rows.length, 1, 'no second card');
+  assert.equal(db.rows[0].passkit_member_id, 'OTHERPASSKITID00', 'and the first was left alone');
+});
