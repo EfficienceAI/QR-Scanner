@@ -82,3 +82,21 @@ test('an email already on another PassKit member card is not handed over', async
   assert.equal(db.rows.length, 1, 'no second card');
   assert.equal(db.rows[0].passkit_member_id, 'OTHERPASSKITID00', 'and the first was left alone');
 });
+
+test('a database that rejects gives null, never a throw', async () => {
+  // The docblock promises it and lib/native-scan.js relies on it: the mirror
+  // is after-reply work on the scan path, and a scan must not fail because of
+  // it. The link branch used to await db.update unguarded, and that await sits
+  // inside the catch, so a rejection there escaped the function.
+  const boom = (what) => async () => { const e = new Error(what + ' is down'); e.status = 503; throw e; };
+  const member = pk({ id: PK, points: 4, person: { emailAddress: 'marco@example.it' } });
+  const everything = { enabled: () => true, selectOne: boom('select'), insert: boom('insert'), update: boom('update') };
+  const linkFails = {
+    enabled: () => true,
+    selectOne: async () => ({ id: 'native1', email: 'marco@example.it', points: 3, passkit_member_id: null }),
+    insert: boom('insert'),
+    update: boom('update'),
+  };
+  assert.equal(await adoptFromPassKit(PK, { db: everything, pk: member }), null);
+  assert.equal(await adoptFromPassKit(PK, { db: linkFails, pk: member }), null);
+});
