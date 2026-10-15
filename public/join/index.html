@@ -226,13 +226,6 @@
     return { ok: resp.ok && data && data.ok, data: data };
   }
   document.getElementById('lostLink').addEventListener('click', function (e) { e.preventDefault(); showForm('lost'); });
-  // /upgrade (the link on the back of the old PassKit pass) opens straight on
-  // "get your card back": email or number, a code, the new card with the points.
-  if (location.hash === '#upgrade') {
-    document.querySelector('#lostForm h1').textContent = 'Upgrade your card';
-    document.querySelector('#lostForm .lead').textContent = 'Enter the email or mobile number on your pass. We’ll email you a code, and your new card will have all your points.';
-    showForm('lost');
-  }
   document.getElementById('lostBack').addEventListener('click', function (e) { e.preventDefault(); showForm('join'); });
   lostForm.addEventListener('submit', async function (e) {
     e.preventDefault();
@@ -317,6 +310,30 @@
     document.getElementById('done').classList.add('show');
     window.scrollTo(0, 0);
   }
+
+  // /upgrade (vercel.json sends it here) opens straight on "get your card
+  // back", retitled: email or number, a code, the new card with the points.
+  //
+  // Last, and after every listener above is registered. It is cosmetic, and a
+  // selector that stopped matching would otherwise throw on null.textContent
+  // part way down the script and take the form's own submit handler with it,
+  // leaving a page that looks right and does nothing at all when submitted.
+  // The original wording is read off the markup rather than repeated here, so
+  // the two cannot drift, and Back puts it back: that is a different question.
+  (function upgradeEntry() {
+    if (location.hash !== '#upgrade') return;
+    var h1 = document.querySelector('#lostForm h1');
+    var lead = document.querySelector('#lostForm .lead');
+    if (!h1 || !lead) return;
+    var wasH1 = h1.textContent, wasLead = lead.textContent;
+    h1.textContent = 'Upgrade your card';
+    lead.textContent = 'Enter the email or mobile number on your pass. We’ll email you a code, and your new card will have all your points.';
+    document.getElementById('lostBack').addEventListener('click', function () {
+      h1.textContent = wasH1;
+      lead.textContent = wasLead;
+    });
+    showForm('lost');
+  })();
 </script>
 </body>
 </html>
