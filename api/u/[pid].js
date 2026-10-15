@@ -8,14 +8,17 @@
  * carries and the serial our imported record keeps. So the tap identifies
  * the customer without a form: an iPhone gets the signed .pkpass, which
  * Wallet swaps in for the old card, and an Android phone goes to Google
- * Wallet. Anyone else, or an id we do not know, lands on the upgrade page
- * with the email-and-code flow.
+ * Wallet. An id we have not imported yet is fetched from PassKit and the
+ * record created on the spot (lib/adopt.js). Anyone else, or an id PassKit
+ * does not know either, lands on the upgrade page with the email-and-code
+ * flow.
  *
  * The id is as private as the old pass itself: PassKit serves that pass to
  * anyone who knows it, so this hands out nothing new.
  */
 
 const members = require('../../lib/members');
+const { adoptFromPassKit } = require('../../lib/adopt');
 const passLib = require('../../lib/pass');
 const gwallet = require('../../lib/gwallet');
 const { db: defaultDb } = require('../../lib/db');
@@ -36,6 +39,8 @@ function createHandler(deps = {}) {
     try {
       member = await members.findByPasskitId(pid, { db });
       if (!member) member = await members.getBySerial(pid, { db });
+      // Joined PassKit after the last import: fetch them and create the record now.
+      if (!member) member = await (deps.adopt || adoptFromPassKit)(pid, { db, log });
     } catch (err) {
       log({ event: 'db_error', status: err.status, message: err.message });
       return go(FALLBACK);

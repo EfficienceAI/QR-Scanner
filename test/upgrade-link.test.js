@@ -7,7 +7,7 @@ const member = { id: '85c54ace-a2ed-428e-8edf-caa8168f2569', full_name: 'Yunus T
 function res() { return { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(b) { this.raw = b; } }; }
 function world({ found = true, status = 'active', google = true } = {}) {
   const db = { enabled: () => true, selectOne: async (table, q) => (found && (q.includes(`passkit_member_id=eq.${PK}`) || q.includes(`pass_serial=eq.${PK}`)) ? { ...member, status } : null) };
-  return createHandler({ db, env: {}, gwallet: { settings: () => ({ enabled: google }) }, buildPkpass: async (m) => Buffer.from('pkpass-for-' + m.id) });
+  return createHandler({ db, env: {}, gwallet: { settings: () => ({ enabled: google }) }, buildPkpass: async (m) => Buffer.from('pkpass-for-' + m.id), adopt: async () => null });
 }
 
 test('an iPhone tapping its pass id gets the new pass straight away', async () => {
@@ -35,4 +35,13 @@ test('unknown, malformed, inactive or Google-off cases fall back to the upgrade 
     const r = res(); await h(req, r);
     assert.equal(r.statusCode, 302); assert.equal(r.headers.Location, '/upgrade');
   }
+});
+
+test('a pass id we have not imported is adopted from PassKit on the spot', async () => {
+  const fresh = { ...member, id: 'adopted-1', pass_serial: '7NEWmemberIdFromPassKit0', passkit_member_id: '7NEWmemberIdFromPassKit0' };
+  const db = { enabled: () => true, selectOne: async () => null };
+  const h = createHandler({ db, env: {}, gwallet: { settings: () => ({ enabled: true }) }, buildPkpass: async (m) => Buffer.from('pkpass-for-' + m.id), adopt: async (pid) => (pid === fresh.pass_serial ? fresh : null) });
+  const r = res();
+  await h({ method: 'GET', query: { pid: fresh.pass_serial }, headers: { 'user-agent': 'iPhone' } }, r);
+  assert.equal(r.statusCode, 200); assert.equal(String(r.raw), 'pkpass-for-adopted-1');
 });
