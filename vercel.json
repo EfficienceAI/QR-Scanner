@@ -18,6 +18,10 @@
     "api/wallet/v1/passes/*/*.js": {
       "maxDuration": 60,
       "includeFiles": "{pass-template,certs}/**"
+    },
+    "api/u/*.js": {
+      "maxDuration": 60,
+      "includeFiles": "{pass-template,certs}/**"
     }
   },
   "redirects": [
@@ -53,6 +57,17 @@
       ],
       "destination": "/join/",
       "permanent": false
+    },
+    {
+      "source": "/upgrade",
+      "destination": "/join/#upgrade",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/u/:pid",
+      "destination": "/api/u/:pid"
     }
   ]
 }
