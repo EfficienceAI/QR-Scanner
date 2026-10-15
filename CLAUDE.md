@@ -62,6 +62,7 @@ Three systems hold data:
 | `api/admin/member.js` | Looks a native member up for staff, including their pass link |
 | `api/admin/refresh.js` | Re-pushes passes after an artwork or theme change |
 | `api/gwallet/[serial].js` | The Google Wallet "save" link for a member |
+| `api/u/[pid].js` | `/u/:pid`, the link on the back of the old PassKit pass: one tap from the old card to the new one |
 | `lib/passkit.js` | PassKit Membership REST client (JWT signed per request) |
 | `lib/ledger.js` | PostgREST calls against `scan_events` with the service key |
 | `lib/time.js` | Timezone helpers, so buckets follow the shop's clock through DST |
@@ -74,6 +75,7 @@ Three systems hold data:
 | `lib/db.js` | General PostgREST client (service key) for the members tables |
 | `lib/members.js` | Native members: validation, tokens, QR message `LBM:<uuid>`, points RPC, Wallet registrations, `readAmount` |
 | `lib/native-scan.js` | The `LBM:` scan path: lookup, add, remove, redeem, and the PassKit mirror both ways |
+| `lib/adopt.js` | Creates the record for a PassKit member who joined after the last import, at the upgrade link or at the till |
 | `lib/gwallet.js` | Google Wallet: the loyalty class and object, and the JWT for the save link |
 | `lib/recovery.js` | Lost-pass recovery: a six-digit code emailed via Resend, hashed at rest, with a resend throttle and an attempt cap |
 | `api/recover.js` | Trades a valid recovery code for the pass link |
@@ -88,7 +90,7 @@ Three systems hold data:
 | `docs/NATIVE-PASSES.md` | Setup guide and the list of placeholders for the native pass system |
 | `supabase/migrations/*.sql` | Table, indexes, RLS and the two RPCs the stats read |
 | `test/*.test.js` | `node --test`, no test framework |
-| `vercel.json` | `outputDirectory: public`, an **empty** `buildCommand` (which also suppresses framework detection), 60s `maxDuration` for the backfill, the import and the scanner, `includeFiles` so the pass routes get the template and the certificates, and the host-scoped redirect of `/` to `/join/` |
+| `vercel.json` | `outputDirectory: public`, an **empty** `buildCommand` (which also suppresses framework detection), 60s `maxDuration` for the backfill, the import and the scanner, `includeFiles` so the pass routes get the template and the certificates, the host-scoped redirect of `/` to `/join/`, and the two addresses the upgrade flow is made of: `/upgrade` to the signup page's recovery form and `/u/:pid` to `api/u/[pid].js`. The dev server reads this file, so `npm run verify` covers them |
 
 ## Rules that are easy to break
 
@@ -134,6 +136,14 @@ Three systems hold data:
   `''`, `[]`, `false`, `'n/a'`). A real `0` is a balance; "we could not read
   it" is not.
 
+  `lib/adopt.js` is the third absolute write and the worst place to get it
+  wrong, because it *issues* the card: a customer taps the link on the back of
+  a card with nine stamps and walks away with one showing none, and nothing
+  about that looks like a failure. So it refuses to create a record at all
+  unless the balance is a whole number ≥ 0, and a caller holding a balance it
+  has already read passes it in (`mirrorLegacy` does, from the scan) rather
+  than letting an odd PassKit record decide.
+
   The import endpoint cannot enforce that on its own, because a `0` that
   arrives as a readable number is indistinguishable from a customer who has
   nothing. PassKit's export writes no `"0"` at all -- a member on nothing has
@@ -159,6 +169,16 @@ Three systems hold data:
   inbox is the proof, rather than knowledge of the address. Where
   `RESEND_API_KEY`/`RESEND_FROM` are unset the customer is sent to the
   counter, where staff have `GET /api/admin/member`.
+- **`/u/:pid` takes a PassKit member id and nothing of ours.** It is the link
+  on the back of the old PassKit pass, and it serves the signed pass with no
+  download token — that is the point of it, and it is safe for a PassKit id
+  only because PassKit already serves that pass to anyone holding the same id.
+  Our own serials are not like that: `LBM-` and ten characters, printed on the
+  card as the QR's alt text (`members.printableSerial`), so a serial lookup on
+  that route handed a native member's pass — and the `pass_auth_token` inside
+  it — to anyone who had read the front of their card. Look the id up by
+  `passkit_member_id` only; `/api/pass/:serial` is where a serial is accepted,
+  and it checks the download token.
 - **`SUPABASE_SERVICE_KEY` is server-side only.** It bypasses RLS; the page
   must never see it.
 - **Amounts that cannot be read are `null`, not `0`.** The backfill parses

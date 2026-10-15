@@ -127,6 +127,39 @@ the icon (the crest alone on black) at every size Apple wants.
   adding a second one. An imported member's history keeps their PassKit-era
   rows because `listMemberEvents` is asked for both ids.
 
+## Telling customers to upgrade (the link on the back of the old pass)
+
+Two addresses, both of them a line in `vercel.json` and nothing else. The dev
+server reads that file, so `npm run verify` proves them.
+
+- **`/u/${pid}`** is the one to put on the back of the PassKit pass, as a link
+  field. PassKit fills `${pid}` in with that pass's own member id, which is
+  also what its QR carries and what the imported row keeps as `pass_serial`,
+  so the tap identifies the customer with no form: an iPhone gets the signed
+  `.pkpass` and Wallet swaps the old card for it, an Android phone goes on to
+  Google Wallet, and anyone else lands on `/upgrade`. A PassKit member who
+  joined after the last import is fetched from PassKit and created on the spot
+  (`lib/adopt.js`) — as they also are the first time they are scanned at the
+  till.
+
+  This route asks for no download token, which is the whole point of it, so it
+  accepts **PassKit member ids only**. Our own `LBM-` serials are printed on
+  the card as the QR's alt text, and a serial lookup here handed a native
+  member's pass — with their Apple pass credential in it — to anyone who had
+  read the front of their card. A PassKit id is different in kind: PassKit
+  already serves that pass to anyone holding the same id.
+
+- **`/upgrade`** is the generic address, for printing or for saying out loud.
+  It opens the signup page on the recovery form, retitled: email or mobile
+  number, a code to the address on the card, the new card with the points. It
+  is the same verified flow as "Already have a card? Get it back", so nothing
+  per customer has to be written into PassKit for it.
+
+  It cannot help a PassKit member who joined after the last import, because
+  `/api/recover` looks only in our own `members` table and `lib/passkit.js` has
+  no lookup by email or number. Those customers need `/u/${pid}`, a scan at
+  the till, or the counter.
+
 ## Lost your pass (recovery codes)
 
 An email or mobile number that is already on a card never gets the card's
