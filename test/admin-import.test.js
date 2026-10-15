@@ -118,7 +118,7 @@ test('an unreadable points column cannot zero the people already imported', asyn
   // "updated: N", which looks identical to a healthy import.
   const seeded = [];
   for (let i = 1; i <= 20; i += 1) {
-    seeded.push({ id: 'm' + i, passkit_member_id: ('P' + i).padEnd(12, '0'), full_name: 'Member ' + i, points: 5 + i, source: 'passkit-import', email: `m${i}@x.com` });
+    seeded.push({ id: 'm' + i, passkit_member_id: ('P' + String(i).padStart(4, '0')).padEnd(12, '0'), full_name: 'Member ' + i, points: 5 + i, source: 'passkit-import', email: `m${i}@x.com` });
   }
   const db = fakeDb(seeded);
   const h = createHandler({ db, env: { ADMIN_SECRET: 's' } });
@@ -165,4 +165,85 @@ test('a single unreadable row leaves that balance alone and is reported', async 
   assert.ok(!db.rows.some((x) => x.passkit_member_id === 'RRRRRRRRRRRR'), 'no member created at an invented zero');
   assert.ok(r.body.problems.some((p) => /not created/.test(p.reason)));
   assert.ok(r.body.problems.some((p) => p.passkit_member_id === 'PPPPPPPPPPPP' && /no balance written/.test(p.reason)));
+});
+
+test('a batch that would write most balances down to zero is refused whole', async () => {
+  // The unreadable-points guard cannot see this. A `0` that arrived as a
+  // readable number looks exactly like a customer who really has nothing, so
+  // a feeder that wrongly decides a blank cell means zero -- an export whose
+  // points column is present but empty throughout -- arrives looking healthy:
+  // unreadable_points is 0 and the summary reads `updated: N`.
+  //
+  // What gives it away is the shape of the change. A real re-run zeroes the
+  // few people who redeemed since the last one, not most of the book.
+  const seeded = [];
+  for (let i = 1; i <= 60; i += 1) {
+    seeded.push({ id: 'm' + i, passkit_member_id: ('P' + String(i).padStart(4, '0')).padEnd(12, '0'), full_name: 'Member ' + i, points: 5 + i, source: 'passkit-import', email: `m${i}@x.com` });
+  }
+  const db = fakeDb(seeded);
+  const h = createHandler({ db, env: { ADMIN_SECRET: 's' } });
+  const headers = { 'x-admin-secret': 's' };
+  const allZero = seeded.map((r) => ({ passkit_member_id: r.passkit_member_id, full_name: r.full_name, email: r.email, points: 0 }));
+
+  let r = res();
+  await h({ method: 'POST', headers, body: { members: allZero } }, r);
+  assert.equal(r.statusCode, 400, 'refused');
+  assert.equal(r.body.error, 'mass_zeroing');
+  assert.equal(r.body.would_zero, 60, 'and it says how many');
+  assert.equal(r.body.hadBalance, 60);
+  assert.ok(!db.calls.some((c) => c[0] === 'update' || c[0] === 'rest'), 'nothing was written: refused before any write, not part way through');
+  for (const row of db.rows) assert.ok(row.points > 5, 'every balance survived: ' + row.id);
+
+  // A dry run is refused too. It would otherwise report `updated: 60`, which
+  // reads exactly like a healthy import -- a dry run shows counts, not values.
+  r = res();
+  await h({ method: 'POST', headers, body: { members: allZero, dry_run: true } }, r);
+  assert.equal(r.statusCode, 400);
+  assert.equal(r.body.would_zero, 60);
+});
+
+test('the zeroing guard does not block the few who really did redeem', async () => {
+  // The guard failed its purpose if it refuses legitimate traffic. The first
+  // version of the unreadable guard refused the real switch-day import, which
+  // is the failure to avoid repeating.
+  const seeded = [];
+  for (let i = 1; i <= 60; i += 1) {
+    seeded.push({ id: 'm' + i, passkit_member_id: ('P' + String(i).padStart(4, '0')).padEnd(12, '0'), full_name: 'Member ' + i, points: 9, source: 'passkit-import', email: `m${i}@x.com` });
+  }
+  const db = fakeDb(seeded);
+  const h = createHandler({ db, env: { ADMIN_SECRET: 's' } });
+  // Five of sixty redeemed and are back at zero; the rest are unchanged.
+  const file = seeded.map((r, i) => ({ passkit_member_id: r.passkit_member_id, full_name: r.full_name, email: r.email, points: i < 5 ? 0 : 9 }));
+
+  const r = res();
+  await h({ method: 'POST', headers: { 'x-admin-secret': 's' }, body: { members: file } }, r);
+  assert.equal(r.statusCode, 200, 'a normal re-run goes through');
+  assert.equal(r.body.would_zero, 5, 'and the drops are still counted and reported');
+  assert.equal(r.body.updated, 5);
+  assert.equal(r.body.unchanged, 55);
+  assert.equal(db.rows.find((x) => x.id === 'm1').points, 0, 'the redemption was applied');
+  assert.equal(db.rows.find((x) => x.id === 'm60').points, 9, 'and everyone else was left alone');
+});
+
+test('a balance rising to zero is not a drop, and a member already at zero is not either', async () => {
+  // would_zero counts balances written *down* to zero. Someone already at zero
+  // staying there is not a change at all, and must not inflate the count
+  // towards the refusal threshold.
+  const db = fakeDb([
+    { id: 'm1', passkit_member_id: 'PPPPPPPPPPPP', full_name: 'Zero Already', points: 0, source: 'passkit-import', email: 'm1@x.com' },
+    { id: 'm2', passkit_member_id: 'QQQQQQQQQQQQ', full_name: 'Going Up', points: 0, source: 'passkit-import', email: 'm2@x.com' },
+    { id: 'm3', passkit_member_id: 'RRRRRRRRRRRR', full_name: 'Dropping', points: 7, source: 'passkit-import', email: 'm3@x.com' },
+  ]);
+  const h = createHandler({ db, env: { ADMIN_SECRET: 's' } });
+  const r = res();
+  await h({ method: 'POST', headers: { 'x-admin-secret': 's' }, body: { members: [
+    { passkit_member_id: 'PPPPPPPPPPPP', full_name: 'Zero Already', email: 'm1@x.com', points: 0 },
+    { passkit_member_id: 'QQQQQQQQQQQQ', full_name: 'Going Up', email: 'm2@x.com', points: 4 },
+    { passkit_member_id: 'RRRRRRRRRRRR', full_name: 'Dropping', email: 'm3@x.com', points: 0 },
+  ] } }, r);
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.body.would_zero, 1, 'only the one that actually fell to zero');
+  assert.equal(r.body.unchanged, 1, 'the member already at zero needed no write');
+  assert.equal(db.rows.find((x) => x.id === 'm2').points, 4);
+  assert.equal(db.rows.find((x) => x.id === 'm3').points, 0);
 });

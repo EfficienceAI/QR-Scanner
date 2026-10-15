@@ -32,6 +32,22 @@ const INSERT_CHUNK = 100;
 // export, and the floor keeps a small file from being refused over one of them.
 const UNREADABLE_FRACTION = 0.1;
 const UNREADABLE_FLOOR = 2;
+// How much of a batch may have its balance written down to zero before the
+// whole call is refused.
+//
+// The unreadable guard above cannot see this one: a `0` that arrived as a
+// readable number is indistinguishable here from a customer who really has
+// nothing, so the feeder deciding wrongly that a blank cell means zero
+// arrives looking perfectly healthy. What gives it away is the shape of the
+// change -- a legitimate re-run zeroes the handful of people who redeemed
+// since the last one, not most of the book.
+//
+// Set loosely on purpose. The first version of the unreadable guard refused
+// the real switch-day import, which is a worse failure than letting a small
+// odd batch through: the floor keeps `--only` runs and small corrections
+// working, and half a batch is still far above anything a real week produces.
+const ZERO_FRACTION = 0.5;
+const ZERO_FLOOR = 20;
 
 function send(res, status, payload) {
   res.statusCode = status;
@@ -140,7 +156,7 @@ function createHandler(deps = {}) {
     if (!list || !list.length || list.length > MAX_ROWS) return send(res, 400, { ok: false, error: 'invalid', message: `Send 1 to ${MAX_ROWS} members.` });
     const dryRun = body.dry_run === true;
 
-    const summary = { received: list.length, created: 0, updated: 0, unchanged: 0, linked: 0, skipped: 0, email_dropped: 0, unreadable_points: 0, dry_run: dryRun, problems: [] };
+    const summary = { received: list.length, created: 0, updated: 0, unchanged: 0, linked: 0, skipped: 0, email_dropped: 0, unreadable_points: 0, would_zero: 0, dry_run: dryRun, problems: [] };
     const problem = (id, reason) => { if (summary.problems.length < 50) summary.problems.push({ passkit_member_id: id || null, reason }); };
     const log = (f) => console.log(JSON.stringify({ src: 'admin-import', ...f }));
     const now = () => new Date().toISOString();
@@ -174,25 +190,47 @@ function createHandler(deps = {}) {
           ...summary,
         });
       }
-      // 2. already imported: update what changed
+      // 2. already imported: work out every change first, then write.
+      // Deciding before writing is what lets the zeroing guard below refuse a
+      // batch whole, rather than discovering the problem half way through it.
       const existing = await byPasskitId([...rows.keys()]);
       const fresh = [];
+      const updates = [];
+      let hadBalance = 0;
       for (const row of rows.values()) {
         const cur = existing.get(row.passkit_member_id);
         if (!cur) { fresh.push(row); continue; }
         // A native joiner we linked keeps their own name, phone and balance:
         // only rows that came from PassKit follow the PassKit export.
         if (cur.source !== 'passkit-import') { summary.unchanged += 1; continue; }
+        if (Number(cur.points) > 0) hadBalance += 1;
         const patch = {};
         if (cur.full_name !== row.full_name) patch.full_name = row.full_name;
         if ((cur.phone || null) !== (row.phone || null)) patch.phone = row.phone;
         // null means "we could not read it", which is not a balance.
         if (row.points !== null && Number(cur.points) !== row.points) patch.points = row.points;
         if (!Object.keys(patch).length) { summary.unchanged += 1; continue; }
-        summary.updated += 1;
-        if (!dryRun) {
-          if (patch.points !== undefined) patch.pass_updated_at = now();
-          await db.update('members', `id=eq.${encodeURIComponent(cur.id)}`, { ...patch, updated_at: now() });
+        if (patch.points === 0 && Number(cur.points) > 0) summary.would_zero += 1;
+        updates.push({ id: cur.id, patch });
+      }
+
+      const zeroLimit = Math.max(ZERO_FLOOR, Math.floor(hadBalance * ZERO_FRACTION));
+      if (summary.would_zero > zeroLimit) {
+        log({ event: 'refused', reason: 'mass_zeroing', hadBalance, ...summary, problems: summary.problems.length });
+        return send(res, 400, {
+          ok: false,
+          error: 'mass_zeroing',
+          message: `This would write ${summary.would_zero} of ${hadBalance} balances down to zero. That is not what a re-run looks like -- check the points column in the export. Nothing was written.`,
+          hadBalance,
+          ...summary,
+        });
+      }
+
+      summary.updated = updates.length;
+      if (!dryRun) {
+        for (const u of updates) {
+          if (u.patch.points !== undefined) u.patch.pass_updated_at = now();
+          await db.update('members', `id=eq.${encodeURIComponent(u.id)}`, { ...u.patch, updated_at: now() });
         }
       }
       // 3. emails already in the table: link a native joiner, or drop the email
