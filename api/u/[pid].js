@@ -32,6 +32,11 @@ function createHandler(deps = {}) {
   const db = deps.db || defaultDb;
   const env = deps.env || process.env;
   return async function handler(req, res) {
+    // The id in this URL fetches a pass, and the Android branch redirects to
+    // one carrying the download token. Neither response has a sub-resource to
+    // leak a referrer to today; the same is true of api/pass/:serial and
+    // api/gwallet/:serial, which set this anyway, and it costs one header.
+    res.setHeader('Referrer-Policy', 'no-referrer');
     if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return send(res, 405, { ok: false, error: 'method_not_allowed' }); }
     const pid = String(query(req).pid || '').trim();
     const go = (location) => { res.statusCode = 302; res.setHeader('Location', location); res.setHeader('Cache-Control', 'no-store'); return res.end(); };

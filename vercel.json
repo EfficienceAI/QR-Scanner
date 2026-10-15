@@ -20,6 +20,7 @@
       "includeFiles": "{pass-template,certs}/**"
     },
     "api/u/*.js": {
+      "maxDuration": 60,
       "includeFiles": "{pass-template,certs}/**"
     }
   },
