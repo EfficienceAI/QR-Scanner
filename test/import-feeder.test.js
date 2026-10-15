@@ -73,7 +73,7 @@ test('the feeder says which of those three cases it is in', async () => {
   assert.match(describe(csv(['AAAAAAAAAAAA,Ann,A,ann@x.com,14', 'BBBBBBBBBBBB,Ben,B,ben@x.com,'])),
     /1 with a value, 1 blank read as zero/);
   assert.match(describe(csv(['AAAAAAAAAAAA,Ann,A,ann@x.com,', 'BBBBBBBBBBBB,Ben,B,ben@x.com,'])),
-    /present but empty in all 2 rows.*refused/);
+    /present but empty in all 2 rows.*no balance will be written/);
   assert.match(describe(csv(['AAAAAAAAAAAA,Ann,A,ann@x.com,14'], 'members.member.id,person.forename,person.surname,person.emailAddress,pts')),
     /no points column/);
 });

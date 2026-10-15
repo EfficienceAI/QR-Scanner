@@ -87,8 +87,12 @@ export function mapRecords(records) {
 
 /** One line the operator has to be able to read before a re-run. */
 export function describePoints(points, total) {
-  if (!points.columnInHeader) return `points: no points column in the export -- all ${total} rows unreadable, the import will be refused`;
-  if (!points.columnAlive) return `points: the points column is present but empty in all ${total} rows -- treating them as unreadable, not as zero, so the import will be refused`;
+  // "no balance written" rather than "refused": the endpoint refuses once
+  // unreadable rows pass its threshold, which a file of one or two rows does
+  // not reach -- those rows are simply skipped and reported as problems.
+  const consequence = 'no balance will be written for them, and the endpoint refuses the batch outright past a tenth of the rows';
+  if (!points.columnInHeader) return `points: no points column in the export -- all ${total} rows unreadable, so ${consequence}`;
+  if (!points.columnAlive) return `points: the points column is present but empty in all ${total} rows -- treated as unreadable rather than as zero, so ${consequence}`;
   return `points: ${points.readable} with a value, ${points.blankAsZero} blank read as zero (PassKit writes no "0")`;
 }
 
