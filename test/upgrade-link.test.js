@@ -45,3 +45,28 @@ test('a pass id we have not imported is adopted from PassKit on the spot', async
   await h({ method: 'GET', query: { pid: fresh.pass_serial }, headers: { 'user-agent': 'iPhone' } }, r);
   assert.equal(r.statusCode, 200); assert.equal(String(r.raw), 'pkpass-for-adopted-1');
 });
+
+test('a native card is not downloadable by the serial printed on it', async () => {
+  // members.printableSerial puts the LBM- serial on the card as the QR alt
+  // text, so it is readable off the front of a phone, and this route asks for
+  // no download token. Answering for one handed over the signed pass with the
+  // pass_auth_token inside it and the LBM: QR that is the balance at the till.
+  //
+  // The db here answers every query, including the passkit_member_id one, so
+  // the test also proves the id is refused before any lookup happens.
+  const native = { ...member, id: 'native-1', pass_serial: 'LBM-ABCDEFGHJK', passkit_member_id: null };
+  const db = { enabled: () => true, selectOne: async () => native };
+  let built = false;
+  const h = createHandler({
+    db, env: {}, gwallet: { settings: () => ({ enabled: true }) },
+    buildPkpass: async () => { built = true; return Buffer.from('pass'); },
+    adopt: async () => null,
+  });
+  for (const pid of ['LBM-ABCDEFGHJK', 'lbm-abcdefghjk']) {
+    const r = res();
+    await h({ method: 'GET', query: { pid }, headers: { 'user-agent': 'iPhone' } }, r);
+    assert.equal(r.statusCode, 302, pid);
+    assert.equal(r.headers.Location, '/upgrade');
+  }
+  assert.equal(built, false, 'no pass was signed, so none could be served');
+});

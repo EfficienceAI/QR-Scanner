@@ -13,8 +13,10 @@
  * does not know either, lands on the upgrade page with the email-and-code
  * flow.
  *
- * The id is as private as the old pass itself: PassKit serves that pass to
- * anyone who knows it, so this hands out nothing new.
+ * A PassKit member id is as private as the old pass itself: PassKit serves
+ * that pass to anyone who knows the id, so accepting one here hands out
+ * nothing new. That argument covers PassKit ids and nothing else -- see the
+ * check on the id below, which is the whole of this route's access control.
  */
 
 const members = require('../../lib/members');
@@ -33,12 +35,26 @@ function createHandler(deps = {}) {
     if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return send(res, 405, { ok: false, error: 'method_not_allowed' }); }
     const pid = String(query(req).pid || '').trim();
     const go = (location) => { res.statusCode = 302; res.setHeader('Location', location); res.setHeader('Cache-Control', 'no-store'); return res.end(); };
-    if (!/^[A-Za-z0-9_-]{10,40}$/.test(pid)) return go(FALLBACK);
+    // A PassKit member id, and nothing of ours. This route asks for no
+    // download token -- that is the point of it -- so whatever it accepts
+    // here, it hands the signed pass to anyone who can type it.
+    //
+    // Our own serials are `LBM-` and ten characters, which fits the pattern
+    // below, and members.printableSerial prints them on the card as the QR's
+    // alt text so a human can read them. So a serial lookup on this route
+    // served a native member's pass -- with the pass_auth_token inside it and
+    // the LBM: QR that is their balance at the till -- to anyone who glanced
+    // at the front of their card. api/pass/:serial gates that same download
+    // on the download token, and so does api/gwallet/:serial.
+    if (!/^[A-Za-z0-9_-]{10,40}$/.test(pid) || /^LBM-/i.test(pid)) return go(FALLBACK);
     const log = (f) => console.log(JSON.stringify({ src: 'upgrade-link', pid, ...f }));
     let member;
     try {
+      // By passkit_member_id only. The import (api/admin/import.js) and
+      // lib/adopt.js both write it beside the serial, so this finds every
+      // PassKit member there is, and a fallback to pass_serial would only
+      // widen the route to serials that are not PassKit's.
       member = await members.findByPasskitId(pid, { db });
-      if (!member) member = await members.getBySerial(pid, { db });
       // Joined PassKit after the last import: fetch them and create the record now.
       if (!member) member = await (deps.adopt || adoptFromPassKit)(pid, { db, log });
     } catch (err) {
