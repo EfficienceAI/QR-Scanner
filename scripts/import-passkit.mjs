@@ -40,6 +40,7 @@ function parseCsv(text) {
 
 const pick = (r, ...names) => { for (const n of names) if (r[n] !== undefined && r[n] !== '') return r[n]; return ''; };
 const records = parseCsv(fs.readFileSync(file, 'utf8'));
+const hasPointsColumn = records.length > 0 && ('members.member.points' in records[0] || 'points' in records[0]);
 let members = records.map((r) => {
   const first = pick(r, 'person.forename', 'forename', 'first_name');
   const last = pick(r, 'person.surname', 'surname', 'last_name');
@@ -49,7 +50,10 @@ let members = records.map((r) => {
     full_name: [first, last].filter(Boolean).join(' ') || display,
     email: pick(r, 'person.emailAddress', 'email', 'members.member.externalId'),
     phone: pick(r, 'person.mobileNumber', 'mobile', 'phone'),
-    points: pick(r, 'members.member.points', 'points'),
+    // PassKit writes nothing for a zero balance (no row in the export ever says
+    // "0"), so a blank cell under a points column that exists is 0. A missing
+    // column stays unreadable, and the endpoint refuses a mostly-unreadable file.
+    points: hasPointsColumn && pick(r, 'members.member.points', 'points') === '' ? '0' : pick(r, 'members.member.points', 'points'),
     pass_status: pick(r, 'member.passMetaData.status'),
   };
 });
