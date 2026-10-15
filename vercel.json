@@ -53,6 +53,11 @@
       ],
       "destination": "/join/",
       "permanent": false
+    },
+    {
+      "source": "/upgrade",
+      "destination": "/join/#upgrade",
+      "permanent": false
     }
   ]
 }
