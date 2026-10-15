@@ -448,10 +448,56 @@ function readBody(req) {
   });
 }
 
+// The redirects and rewrites from vercel.json, applied the way Vercel applies
+// them: redirects first, then rewrites, then the route table.
+//
+// Two of the public URLs exist nowhere else -- /upgrade and /u/:pid are a
+// redirect and a rewrite and nothing more -- so without this they 404 here,
+// the self-test cannot reach them at all, and a typo in either `source` ships
+// unnoticed to the back of a printed card. The real file is read rather than
+// a copy of its contents, so what passes here is the configuration that ships.
+const VERCEL = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+
+function compileSource(source) {
+  const names = [];
+  const pattern = String(source)
+    .replace(/[.+*?^${}()|[\]\\]/g, '\\$&')
+    .replace(/:([A-Za-z0-9_]+)/g, (_, name) => { names.push(name); return '([^/]+)'; });
+  return { re: new RegExp(`^${pattern}$`), names };
+}
+function fill(destination, names, m) {
+  return names.reduce((out, name, i) => out.split(`:${name}`).join(m[i + 1]), String(destination));
+}
+const REDIRECTS = (VERCEL.redirects || []).map((r) => ({ ...r, ...compileSource(r.source) }));
+const REWRITES = (VERCEL.rewrites || []).map((r) => ({ ...r, ...compileSource(r.source) }));
+
+/**
+ * Vercel matches `has` against the real request. Only `host` is supported
+ * here, which is all vercel.json uses; anything else counts as no match
+ * rather than a match, so an unsupported condition cannot fire by accident.
+ * In dev the host is localhost, so the host-scoped `/` redirects correctly
+ * stay out of the way.
+ */
+function conditionsMet(has, req) {
+  return (has || []).every((c) => c.type === 'host' && String(req.headers.host || '').split(':')[0] === c.value);
+}
+
 const server = http.createServer(async (req, res) => {
-  const pathname = new URL(req.url, 'http://localhost').pathname;
+  let pathname = new URL(req.url, 'http://localhost').pathname;
   const started = Date.now();
   if (!SELFTEST) res.on('finish', () => console.log(`${req.method} ${req.url} -> ${res.statusCode} (${Date.now() - started}ms)`));
+
+  for (const r of REDIRECTS) {
+    const m = r.re.exec(pathname);
+    if (!m || !conditionsMet(r.has, req)) continue;
+    res.statusCode = r.permanent ? 308 : 307;
+    res.setHeader('Location', fill(r.destination, r.names, m));
+    return res.end();
+  }
+  for (const r of REWRITES) {
+    const m = r.re.exec(pathname);
+    if (m) { pathname = fill(r.destination, r.names, m); break; }
+  }
 
   const matched = ROUTES[pathname] ? { file: ROUTES[pathname], params: {} } : matchApi(pathname);
   const route = matched && matched.file;
@@ -740,6 +786,48 @@ async function selftest(base) {
   const unknown = await realFetch(base + '/api/recover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'nobody@example.com' }) });
   const unknownBody = await unknown.json();
   check('an unknown email gets the same answer as a known one', unknown.status === 200 && unknownBody.sent === true && unknownBody.hint === null, JSON.stringify(unknownBody));
+
+  console.log('\n  The link on the back of the old pass: /upgrade and /u/:pid');
+  // Both of these URLs are vercel.json and nothing else -- a redirect and a
+  // rewrite -- so these checks are the only thing standing between a typo in
+  // that file and a dead link printed on a card.
+  const iphone = { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X)' };
+  const upgrade = await realFetch(base + '/upgrade', { redirect: 'manual' });
+  check('/upgrade opens the join page on the recovery form', upgrade.status === 307 && upgrade.headers.get('location') === '/join/#upgrade',
+    'HTTP ' + upgrade.status + ' ' + upgrade.headers.get('location'));
+
+  const importedPid = zeroBatch[1].passkit_member_id;
+  const tap = await realFetch(base + '/u/' + importedPid, { redirect: 'manual', headers: iphone });
+  check('an imported member tapping the link gets their new pass', tap.status === 200 && String(tap.headers.get('content-type')).includes('vnd.apple.pkpass'),
+    'HTTP ' + tap.status + ' ' + tap.headers.get('content-type'));
+  const andTap = await realFetch(base + '/u/' + importedPid, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/120 Mobile' } });
+  check('an Android phone is sent on to its Google Wallet card', andTap.status === 302 && String(andTap.headers.get('location')).startsWith('/api/gwallet/'),
+    'HTTP ' + andTap.status + ' ' + andTap.headers.get('location'));
+
+  // The serial is printed on the card as the QR alt text, and this route asks
+  // for no download token, so answering for one would hand over the pass.
+  const nativeRow = NATIVE.find((m) => m.email_norm === 'selftest@example.com');
+  const bySerial = await realFetch(base + '/u/' + nativeRow.pass_serial, { redirect: 'manual', headers: iphone });
+  check('a native card is not downloadable by the serial printed on it', bySerial.status === 302 && bySerial.headers.get('location') === '/upgrade',
+    'HTTP ' + bySerial.status + ' ' + bySerial.headers.get('location') + ' serial=' + nativeRow.pass_serial);
+
+  // Joined PassKit after the last import: fetched and created on the spot,
+  // with the balance PassKit reports -- not a zero.
+  const latecomer = 'LATEJOINER7788';
+  const adopt = await realFetch(base + '/u/' + latecomer, { redirect: 'manual', headers: iphone });
+  const adopted = NATIVE.find((m) => m.passkit_member_id === latecomer);
+  check('a member who joined PassKit after the import is adopted at the link, with their points',
+    adopt.status === 200 && Boolean(adopted) && adopted.points === MEMBERS[latecomer].points && adopted.pass_serial === latecomer,
+    'HTTP ' + adopt.status + ' row=' + JSON.stringify(adopted && { points: adopted.points, serial: adopted.pass_serial }) + ' passkit=' + (MEMBERS[latecomer] && MEMBERS[latecomer].points));
+
+  // A PassKit record with nothing readable where the balance should be: no
+  // card rather than a card showing nothing.
+  const blankBalance = 'BLANKPOINTS991';
+  MEMBERS[blankBalance] = { id: blankBalance, programId: 'P1', status: 'ENROLLED', points: '', person: { displayName: 'Blank Balance' } };
+  const refused = await realFetch(base + '/u/' + blankBalance, { redirect: 'manual', headers: iphone });
+  check('a balance PassKit cannot give us means no card, not a card showing zero',
+    refused.status === 302 && refused.headers.get('location') === '/upgrade' && !NATIVE.some((m) => m.passkit_member_id === blankBalance),
+    'HTTP ' + refused.status + ' ' + refused.headers.get('location') + ' created=' + NATIVE.some((m) => m.passkit_member_id === blankBalance));
 
   console.log(`\n  ${passed} passed, ${failures.length} failed\n`);
   if (failures.length) {
